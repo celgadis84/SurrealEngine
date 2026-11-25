@@ -6,7 +6,12 @@
 
 // Note: this never frees the memory again.
 // We may want to maintain a list of Bytecode instances in the process and compact if it grows too big
+#ifdef __N64__
+// N64 port: script-tree arena in 64 KB blocks (1 MiB blocks took 1 MiB of the heap at boot)
+MemoryArena Bytecode::arena(64 * 1024);
+#else
 MemoryArena Bytecode::arena(1024 * 1024);
+#endif
 
 Bytecode::Bytecode(const Array<uint8_t>& bytecode, Package* package)
 {

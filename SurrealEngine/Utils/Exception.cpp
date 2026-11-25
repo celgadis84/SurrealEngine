@@ -203,8 +203,24 @@ int Exception::CaptureStackFrames(std::ostringstream& sstream, int maxframes)
 #endif
 }
 
+#ifdef __N64__
+extern "C" int k64_backtrace(uint32_t* out, int max);
+extern "C" void k64_printf(const char* fmt, ...);
+#endif
+
 void Exception::Throw(const std::string& text)
 {
+#ifdef __N64__
+	{
+		// no unwinder symbols on the N64: print the raw return addresses (look up in the .map)
+		uint32_t bt[12];
+		int n = k64_backtrace(bt, 12);
+		k64_printf("[ue] throw: %s\n[ue] throw at:", text.c_str());
+		for (int i = 0; i < n; i++)
+			k64_printf(" %08x", (unsigned)bt[i]);
+		k64_printf("\n");
+	}
+#endif
 	std::ostringstream sstream;
 	sstream << text << std::endl;
 

@@ -42,7 +42,12 @@ void Frame::SetState(UStruct* func)
 	InitVariables();
 }
 
+#ifdef __N64__
+// N64 port: 8 MiB RDRAM; high-water mark checked at boot (UNREAL-PORT.md "Linked size")
+#define VM_VARIABLE_STACK_CAPACITY (256*1024)
+#else
 #define VM_VARIABLE_STACK_CAPACITY (1024*1024)
+#endif
 static Array<size_t> VariableStackAllocations;
 static size_t VariableStackOffset = 0;
 static char VariableStack[VM_VARIABLE_STACK_CAPACITY];
@@ -307,8 +312,77 @@ std::string Frame::GetCallstack()
 	return result;
 }
 
+#ifdef __N64__
+#include "ScriptCall.h"
+// N64 port: per-UFunction call info, filled on first call (UFunctions live as long as the packages)
+struct K64FuncInfo
+{
+	UFunction* Func;
+	short Event;   // EventName, -1 = not an event name
+	short NumArgs; // parms that are not the return value
+	short RetPos;  // -1 no return parm, -2 return parm not last (no fast native path)
+	UProperty* RetProp;
+	NativeFuncHandler* ByName;
+};
+static K64FuncInfo k64FuncInfo[1024];
+
+static K64FuncInfo& K64GetFuncInfo(UFunction* func)
+{
+	uintptr_t h = (uintptr_t)func;
+	K64FuncInfo& fi = k64FuncInfo[((h >> 4) ^ (h >> 14)) & 1023];
+	if (fi.Func != func)
+	{
+		fi.Func = func;
+		EventName ev = {};
+		fi.Event = NameStringToEventName(func->Name, ev) ? (short)(int)ev : (short)-1;
+		fi.NumArgs = 0;
+		fi.RetPos = -1;
+		fi.RetProp = nullptr;
+		fi.ByName = nullptr;
+		int pos = 0;
+		for (UProperty* prop : func->Properties)
+		{
+			if (!AllFlags(prop->PropFlags, PropertyFlags::Parm))
+				continue;
+			if (fi.RetPos != -1)
+				fi.RetPos = -2; // a parm after the return value
+			if (AllFlags(prop->PropFlags, PropertyFlags::ReturnParm))
+			{
+				if (fi.RetPos == -1)
+					fi.RetPos = (short)pos;
+				fi.RetProp = prop;
+			}
+			else
+				fi.NumArgs++;
+			pos++;
+		}
+		if (AllFlags(func->FuncFlags, FunctionFlags::Native) && func->NativeFuncIndex == 0 && func->NativeStruct)
+			fi.ByName = &NativeFunctions::NativeByName[{ func->Name, func->NativeStruct->Name }];
+	}
+	return fi;
+}
+
+// Same answer as instance->IsEventEnabled(func->Name) without the name -> event hash per call
+static inline bool K64EventEnabled(UObject* instance, UFunction* func, const K64FuncInfo& fi)
+{
+	if (fi.Event >= 0)
+		return instance->IsEventEnabled((EventName)fi.Event);
+	if (!instance->DisabledEvents.m)
+		return true;
+	return instance->IsEventEnabled(func->Name);
+}
+#endif
+
 ExpressionValue Frame::Call(UFunction* func, UObject* instance, const ArrayView<ExpressionValue>& args)
 {
+#ifdef __N64__
+	if (!func)
+	{
+		LogMessage("Call with null function");
+		LogMessage(Frame::GetCallstack());
+		return ExpressionValue::NothingValue();
+	}
+#endif
 	if (!instance)
 	{
 		LogMessage("Accessed None when calling " + func->Name.ToString());
@@ -316,9 +390,16 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, const ArrayView<
 		return ExpressionValue::NothingValue();
 	}
 
+#ifdef __N64__
+	if (!Traces.empty())
+		TraceCall(func, instance, args);
+
+	if (!K64EventEnabled(instance, func, K64GetFuncInfo(func)))
+#else
 	TraceCall(func, instance, args);
 
 	if (!instance->IsEventEnabled(func->Name))
+#endif
 	{
 		return ExpressionValue::NothingValue();
 	}
@@ -415,6 +496,15 @@ ExpressionValue Frame::CallNative(UFunction* func, UObject* instance, const Arra
 	else
 		callback = &NativeFunctions::NativeByName[{ func->Name, func->NativeStruct->Name }];
 
+#ifdef __N64__
+	if (callback && !*callback)
+	{
+		static int unn = 0;
+		if (unn++ < 60)
+			printf("[ue] native sin handler %s.%s (ignorada)\n", func->NativeStruct ? func->NativeStruct->Name.ToString().c_str() : "?", func->Name.ToString().c_str());
+		return ExpressionValue::NothingValue();
+	}
+#endif
 	if (callback)
 	{
 		try
@@ -423,6 +513,15 @@ ExpressionValue Frame::CallNative(UFunction* func, UObject* instance, const Arra
 		}
 		catch (const std::exception& e)
 		{
+#ifdef __N64__
+			{
+				int dbgi = 0;
+				printf("[ue] native %s args %d:", func->Name.ToString().c_str(), (int)args.size());
+				for (UProperty* p : func->Properties)
+					printf(" [%s vt=%d got=%d]", p->Name.ToString().c_str(), (int)p->ValueType, (int)frameArgs[dbgi++].GetType());
+				printf("\n");
+			}
+#endif
 			LogMessage(std::string("Script error: ") + e.what());
 			return ExpressionValue::NothingValue();
 		}
@@ -489,6 +588,29 @@ void Frame::Tick()
 		Run();
 }
 
+#ifdef __N64__
+// Jump target cache: (bytecode, offset) -> statement index (Bytecode::FindStatementIndex is a map)
+struct K64JEntry
+{
+	::Bytecode* Code;
+	int Offset;
+	int Index;
+};
+static K64JEntry k64JCache[1024];
+
+static int K64FindStatement(::Bytecode* code, uint16_t offset)
+{
+	K64JEntry& je = k64JCache[(((uintptr_t)code >> 4) ^ offset) & 1023];
+	if (je.Code == code && je.Offset == (int)offset)
+		return je.Index;
+	int index = code->FindStatementIndex(offset);
+	je.Code = code;
+	je.Offset = offset;
+	je.Index = index;
+	return index;
+}
+#endif
+
 ExpressionEvalResult Frame::Run()
 {
 	if (!Func)
@@ -509,14 +631,23 @@ ExpressionEvalResult Frame::Run()
 	int instructionsRetired = 0;
 	while (true)
 	{
+#ifdef __N64__
+		::Bytecode* k64code = Func->Code.get();
+		if (StatementIndex >= k64code->Statements.size())
+#else
 		if (StatementIndex >= Func->Code->Statements.size())
+#endif
 			ThrowException("Unexpected end of code statements");
 
 		// Note: GotoState may change StatementIndex (jump to a different location) so we have to increment the index before executing the statement
 		size_t curStatementIndex = StatementIndex;
 		StatementIndex++;
 
+#ifdef __N64__
+		StepExpression = k64code->Statements[curStatementIndex];
+#else
 		StepExpression = Func->Code->Statements[curStatementIndex];
+#endif
 
 		if (instructionsRetired >= maxInstructions)
 		{
@@ -534,7 +665,11 @@ ExpressionEvalResult Frame::Run()
 			Break();
 		}
 
+#ifdef __N64__
+		Expression* statement = k64code->Statements[curStatementIndex];
+#else
 		Expression* statement = Func->Code->Statements[curStatementIndex];
+#endif
 		//ExpressionEvalResult result = ExpressionEvaluator::Eval(statement, Object, Object, Variables);
 		ExpressionEvalResult result = RunExpr(statement, Object, Object, Variables);
 		if (!Func)
@@ -544,7 +679,11 @@ ExpressionEvalResult Frame::Run()
 		case StatementResult::Next:
 			break;
 		case StatementResult::Jump:
+#ifdef __N64__
+			StatementIndex = K64FindStatement(Func->Code.get(), result.JumpAddress);
+#else
 			StatementIndex = Func->Code->FindStatementIndex(result.JumpAddress);
+#endif
 			break;
 		case StatementResult::Switch:
 			ProcessSwitch(result.Value);
@@ -719,6 +858,127 @@ static void PopValues(size_t count)
 	}
 }
 
+#ifdef __N64__
+// N64 port: native call with the args already on the vmstack. The handler gets a pointer to them,
+// the missing optional args and the return slot are pushed right after; no Frame, no copies.
+// Returns false when this function needs the generic Frame::CallNative path.
+static bool K64NativeFast(UFunction* func, UObject* instance, size_t n)
+{
+	const K64FuncInfo& fi = K64GetFuncInfo(func);
+	if (fi.RetPos == -2 || n > (size_t)fi.NumArgs)
+		return false;
+	if (!K64EventEnabled(instance, func, fi))
+	{
+		PopValues(n);
+		PushValue(ExpressionValue::NothingValue());
+		return true;
+	}
+	NativeFuncHandler* cb = func->NativeFuncIndex != 0 ? &NativeFunctions::NativeByIndex[func->NativeFuncIndex] : fi.ByName;
+	if (!cb || !*cb)
+		return false; // generic path logs / throws
+	int base = vmstack.valueEnd - (int)n;
+	for (size_t i = n; i < (size_t)fi.NumArgs; i++)
+		PushValue(ExpressionValue::NothingValue());
+	if (fi.RetPos >= 0)
+		PushValue(ExpressionValue::PropertyValue(fi.RetProp));
+	bool ok = true;
+	try
+	{
+		(*cb)(instance, reinterpret_cast<ExpressionValue*>(vmstack.value[base].buffer));
+	}
+	catch (const std::exception& e)
+	{
+		LogMessage(std::string("Script error: ") + e.what());
+		ok = false;
+	}
+	catch (...)
+	{
+		LogMessage("Script error: Unknown error");
+		ok = false;
+	}
+	if (ok && fi.RetPos >= 0)
+	{
+		ExpressionValue result = std::move(*reinterpret_cast<ExpressionValue*>(vmstack.value[vmstack.valueEnd - 1].buffer));
+		PopValues(vmstack.valueEnd - base);
+		PushValue(std::move(result));
+	}
+	else
+	{
+		PopValues(vmstack.valueEnd - base);
+		PushValue(ExpressionValue::NothingValue());
+	}
+	return true;
+}
+
+// Pure leaf expressions pushed straight onto the value stack (false = not a leaf)
+static inline bool K64Leaf(Expression* e, UObject* self, UObject* context, void* variables)
+{
+	switch (e->Type)
+	{
+	case ExpressionType::LocalVariable: PushValue(ExpressionValue::Variable(variables, static_cast<LocalVariableExpression*>(e)->Variable)); return true;
+	case ExpressionType::InstanceVariable: PushValue(ExpressionValue::Variable(context->PropertyData.Data, static_cast<InstanceVariableExpression*>(e)->Variable)); return true;
+	case ExpressionType::Self: PushValue(ExpressionValue::ObjectValue(self)); return true;
+	case ExpressionType::IntConst: PushValue(ExpressionValue::IntValue(static_cast<IntConstExpression*>(e)->Value)); return true;
+	case ExpressionType::FloatConst: PushValue(ExpressionValue::FloatValue(static_cast<FloatConstExpression*>(e)->Value)); return true;
+	case ExpressionType::ObjectConst: PushValue(ExpressionValue::ObjectValue(static_cast<ObjectConstExpression*>(e)->Object)); return true;
+	case ExpressionType::NameConst: PushValue(ExpressionValue::NameValue(static_cast<NameConstExpression*>(e)->Value)); return true;
+	case ExpressionType::ByteConst: PushValue(ExpressionValue::ByteValue(static_cast<ByteConstExpression*>(e)->Value)); return true;
+	case ExpressionType::IntConstByte: PushValue(ExpressionValue::ByteValue(static_cast<IntConstByteExpression*>(e)->Value)); return true;
+	case ExpressionType::IntZero: PushValue(ExpressionValue::IntValue(0)); return true;
+	case ExpressionType::IntOne: PushValue(ExpressionValue::IntValue(1)); return true;
+	case ExpressionType::True: PushValue(ExpressionValue::BoolValue(true)); return true;
+	case ExpressionType::False: PushValue(ExpressionValue::BoolValue(false)); return true;
+	case ExpressionType::NoObject: PushValue(ExpressionValue::ObjectValue(nullptr)); return true;
+	default: return false;
+	}
+}
+
+// Push the args of a call: the leading leaf args are evaluated now, the rest go on the expr stack
+// (evaluated later, in order). Returns true when every arg was a leaf.
+template<typename T>
+static inline bool K64PushArgs(const T& args, UObject* self, UObject* context, void* variables)
+{
+	size_t i = 0, n = args.size();
+	if (Frame::Breakpoints.empty())
+	{
+		while (i < n && K64Leaf(args[i], self, context, variables))
+			i++;
+	}
+	for (size_t k = n; k > i; k--)
+	{
+		PushExpr(args[k - 1]);
+	}
+	return i == n;
+}
+
+// VirtualFunction lookup cache: (call site, context class, state name) -> function
+struct K64VEntry
+{
+	Expression* Expr;
+	UClass* Cls;
+	NameString State;
+	UFunction* Func;
+};
+static K64VEntry k64VCache[2048];
+
+static inline K64VEntry& K64VSlot(Expression* e, UClass* c)
+{
+	uintptr_t h = ((uintptr_t)e >> 3) ^ ((uintptr_t)c >> 4) ^ ((uintptr_t)c >> 13);
+	return k64VCache[h & 2047];
+}
+
+// Call + replace the n args on the vmstack with the result
+static void K64CallPush(UFunction* func, UObject* context, size_t n)
+{
+	if (func && context && Frame::Traces.empty() && AllFlags(func->FuncFlags, FunctionFlags::Native) && K64NativeFast(func, context, n))
+		return;
+	ArrayView<ExpressionValue> funcArgs((ExpressionValue*)vmstack.value[vmstack.valueEnd - n].buffer, n);
+	auto callresult = Frame::Call(func, context, funcArgs);
+	PopValues(n);
+	PushValue(std::move(callresult));
+}
+#endif
+
 ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UObject* context, void* variables)
 {
 	int enterExprEnd = vmstack.exprEnd;
@@ -889,11 +1149,27 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 			case ExpressionType::Let:
 				if (pass == 0)
 				{
+#ifdef __N64__
+					if (!Breakpoints.empty() || !K64Leaf(static_cast<LetExpression*>(expr)->RightSide, self, context, variables))
+					{
+						PushExpr(static_cast<LetExpression*>(expr)->LeftSide);
+						PushExpr(static_cast<LetExpression*>(expr)->RightSide);
+						break;
+					}
+					if (!K64Leaf(static_cast<LetExpression*>(expr)->LeftSide, self, context, variables))
+					{
+						PushExpr(static_cast<LetExpression*>(expr)->LeftSide);
+						break;
+					}
+				}
+				{
+#else
 					PushExpr(static_cast<LetExpression*>(expr)->LeftSide);
 					PushExpr(static_cast<LetExpression*>(expr)->RightSide);
 				}
 				else
 				{
+#endif
 					ExpressionValue lvalue = std::move(PopValue());
 					ExpressionValue rvalue = std::move(PopValue());
 					if (lvalue.GetType() != ExpressionValueType::Nothing)
@@ -1804,6 +2080,12 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 				{
 					PushContext(self);
 					const auto& args = static_cast<VirtualFunctionExpression*>(expr)->Args;
+#ifdef __N64__
+					if (!K64PushArgs(args, self, context, variables))
+						break;
+				}
+				{
+#else
 					for (auto it = args.rbegin(); it != args.rend(); ++it)
 					{
 						PushExpr(*it);
@@ -1811,6 +2093,7 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 				}
 				else
 				{
+#endif
 					PopContext();
 
 					auto funcExpr = static_cast<VirtualFunctionExpression*>(expr);
@@ -1824,6 +2107,36 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 
 					NameString stateName = context->GetStateName();
 					bool found = false;
+#ifdef __N64__
+					{
+						K64VEntry& ve = K64VSlot(expr, contextClass);
+						if (ve.Expr == expr && ve.Cls == contextClass && ve.State == stateName)
+						{
+							K64CallPush(ve.Func, context, funcExpr->Args.size());
+							PopExpr();
+							break;
+						}
+						UFunction* vf = nullptr;
+						for (UClass* cls = contextClass; !vf && cls != nullptr; cls = static_cast<UClass*>(cls->BaseStruct))
+						{
+							UState* state = cls->GetState(stateName);
+							if (state)
+								vf = state->GetFunction(funcExpr->Name);
+						}
+						for (UClass* cls = contextClass; !vf && cls != nullptr; cls = static_cast<UClass*>(cls->BaseStruct))
+							vf = cls->GetFunction(funcExpr->Name);
+						if (vf)
+						{
+							ve.Expr = expr;
+							ve.Cls = contextClass;
+							ve.State = stateName;
+							ve.Func = vf;
+							K64CallPush(vf, context, funcExpr->Args.size());
+							PopExpr();
+							break;
+						}
+					}
+#endif
 					for (UClass* cls = contextClass; cls != nullptr; cls = static_cast<UClass*>(cls->BaseStruct))
 					{
 						UState* state = cls->GetState(stateName);
@@ -1832,9 +2145,13 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 							UFunction* func = state->GetFunction(funcExpr->Name);
 							if (func)
 							{
+#ifdef __N64__
+								K64CallPush(func, context, funcExpr->Args.size());
+#else
 								auto callresult = Frame::Call(func, context, funcArgs);
 								PopValues(funcExpr->Args.size());
 								PushValue(callresult);
+#endif
 								PopExpr();
 								found = true;
 								break;
@@ -1849,9 +2166,13 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 						{
 							if (UFunction* func = cls->GetFunction(funcExpr->Name))
 							{
+#ifdef __N64__
+								K64CallPush(func, context, funcExpr->Args.size());
+#else
 								auto callresult = Frame::Call(func, context, funcArgs);
 								PopValues(funcExpr->Args.size());
 								PushValue(callresult);
+#endif
 								PopExpr();
 								found = true;
 								break;
@@ -1874,7 +2195,13 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 				if (pass == 0)
 				{
 					PushContext(self);
-					const auto& args = static_cast<VirtualFunctionExpression*>(expr)->Args;
+					const auto& args = static_cast<FinalFunctionExpression*>(expr)->Args;
+#ifdef __N64__
+					if (!K64PushArgs(args, self, context, variables))
+						break;
+				}
+				{
+#else
 					for (auto it = args.rbegin(); it != args.rend(); ++it)
 					{
 						PushExpr(*it);
@@ -1882,13 +2209,18 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 				}
 				else
 				{
+#endif
 					PopContext();
 					auto funcExpr = static_cast<FinalFunctionExpression*>(expr);
 					ArrayView<ExpressionValue> funcArgs((ExpressionValue*)vmstack.value[vmstack.valueEnd - funcExpr->Args.size()].buffer, funcExpr->Args.size());
 
+#ifdef __N64__
+					K64CallPush(funcExpr->Func, context, funcExpr->Args.size());
+#else
 					auto callresult = Frame::Call(funcExpr->Func, context, funcArgs);
 					PopValues(funcExpr->Args.size());
 					PushValue(callresult);
+#endif
 					PopExpr();
 				}
 				break;
@@ -1898,6 +2230,12 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 				{
 					PushContext(self);
 					const auto& args = static_cast<GlobalFunctionExpression*>(expr)->Args;
+#ifdef __N64__
+					if (!K64PushArgs(args, self, context, variables))
+						break;
+				}
+				{
+#else
 					for (auto it = args.rbegin(); it != args.rend(); ++it)
 					{
 						PushExpr(*it);
@@ -1905,6 +2243,7 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 				}
 				else
 				{
+#endif
 					PopContext();
 					auto funcExpr = static_cast<GlobalFunctionExpression*>(expr);
 					ArrayView<ExpressionValue> funcArgs((ExpressionValue*)vmstack.value[vmstack.valueEnd - funcExpr->Args.size()].buffer, funcExpr->Args.size());
@@ -1921,9 +2260,13 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 						UFunction* func = cls->GetFunction(funcExpr->Name);
 						if (func)
 						{
+#ifdef __N64__
+							K64CallPush(func, context, funcExpr->Args.size());
+#else
 							auto callresult = Frame::Call(func, context, funcArgs);
 							PopValues(funcExpr->Args.size());
 							PushValue(callresult);
+#endif
 							PopExpr();
 							found = true;
 							break;
@@ -1970,6 +2313,24 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 						PopExpr();
 					}
 				}
+				else if (static_cast<NativeFunctionExpression*>(expr)->nativeindex == 542 && ((size_t)542 >= NativeFunctions::FuncByIndex.size() || !NativeFunctions::FuncByIndex[542])) // U227 ternary cond ? a : b
+				{
+					auto funcExpr = static_cast<NativeFunctionExpression*>(expr);
+					if (pass == 0)
+					{
+						PushContext(self);
+						PushExpr(funcExpr->Args[0]);
+					}
+					else if (pass == 1)
+					{
+						PushExpr(PopValue().ToBool() ? funcExpr->Args[2] : funcExpr->Args[3]);
+					}
+					else
+					{
+						PopContext();
+						PopExpr();
+					}
+				}
 				else if (static_cast<NativeFunctionExpression*>(expr)->nativeindex == 132) // conditional operator ||
 				{
 					auto funcExpr = static_cast<NativeFunctionExpression*>(expr);
@@ -2005,6 +2366,12 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 					{
 						PushContext(self);
 						const auto& args = static_cast<NativeFunctionExpression*>(expr)->Args;
+#ifdef __N64__
+						if (!K64PushArgs(args, self, context, variables))
+							break;
+					}
+					{
+#else
 						for (auto it = args.rbegin(); it != args.rend(); ++it)
 						{
 							PushExpr(*it);
@@ -2012,23 +2379,61 @@ ExpressionEvalResult Frame::RunExpr(Expression* statementExpr, UObject* self, UO
 					}
 					else
 					{
+#endif
 						PopContext();
 						auto funcExpr = static_cast<NativeFunctionExpression*>(expr);
 						ArrayView<ExpressionValue> funcArgs((ExpressionValue*)vmstack.value[vmstack.valueEnd - funcExpr->Args.size()].buffer, funcExpr->Args.size());
 
+#ifdef __N64__
+						if ((size_t)funcExpr->nativeindex >= NativeFunctions::FuncByIndex.size() || !NativeFunctions::FuncByIndex[funcExpr->nativeindex])
+							printf("[ue] native index %d not registered (table %d)\n", funcExpr->nativeindex, (int)NativeFunctions::FuncByIndex.size());
+#endif
+#ifdef __N64__
+						if ((size_t)funcExpr->nativeindex >= NativeFunctions::FuncByIndex.size() || !NativeFunctions::FuncByIndex[funcExpr->nativeindex])
+						{
+							printf("[ue] native index %d not registered (table %d)\n", funcExpr->nativeindex, (int)NativeFunctions::FuncByIndex.size());
+						{ printf("[ue] natexpr type %d nat %d nargs %d\n", (int)funcExpr->Type, (int)funcExpr->nativeindex, (int)funcExpr->Args.size()); for (size_t k = 0; k < funcExpr->Args.size() && k < 8; k++) printf("[ue]  arg %d type %d\n", (int)k, (int)funcExpr->Args[k]->Type); }
+						if (!Callstack.empty() && Callstack.back()->Func && Callstack.back()->Func->Code) { auto* cf = Callstack.back()->Func; for (size_t k = 0; k < cf->Code->Statements.size() && k < 8; k++) printf("[ue] stmt %d: %s\n", (int)k, GetDisassembly(cf->Code->Statements[k]).c_str()); }
+						}
+#endif
+#ifdef __N64__
+						K64CallPush(NativeFunctions::FuncByIndex[funcExpr->nativeindex], context, funcExpr->Args.size());
+#else
 						auto callresult = Frame::Call(NativeFunctions::FuncByIndex[funcExpr->nativeindex], context, funcArgs);
 						PopValues(funcExpr->Args.size());
 						PushValue(callresult);
+#endif
 						PopExpr();
 					}
 				}
 				break;
 
 			case ExpressionType::Construct:
-				Frame::ThrowException("Construct expression not implemented");
-				PushValue(ExpressionValue::NothingValue());
-				PopExpr();
+			{
+				auto* cexpr = static_cast<ConstructExpression*>(expr);
+				if (pass < (int)cexpr->Args.size())
+				{
+					PushExpr(cexpr->Args[pass].Value);
+				}
+				else
+				{
+					size_t n = cexpr->Args.size();
+					ExpressionValue result = ExpressionValue::NothingValue();
+					std::string sn = cexpr->Struct ? cexpr->Struct->Name.ToString() : std::string();
+					if (sn == "Vector") result = ExpressionValue::VectorValue(vec3(0.0f));
+					else if (sn == "Rotator") result = ExpressionValue::RotatorValue(Rotator(0, 0, 0));
+					for (size_t i = 0; i < n; i++)
+					{
+						ExpressionValue& av = *reinterpret_cast<ExpressionValue*>(vmstack.value[vmstack.valueEnd - n + i].buffer);
+						if (cexpr->Args[i].Name && result.GetType() != ExpressionValueType::Nothing)
+							result.Member(cexpr->Args[i].Name).Store(av);
+					}
+					PopValues(n);
+					PushValue(result);
+					PopExpr();
+				}
 				break;
+			}
 
 			case ExpressionType::FunctionArguments:
 				PushValue(ExpressionValue::NothingValue());

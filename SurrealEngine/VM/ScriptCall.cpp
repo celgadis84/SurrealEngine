@@ -2,6 +2,7 @@
 #include "Precomp.h"
 #include "ScriptCall.h"
 #include "Frame.h"
+#include "Utils/Logger.h"
 #include "Packages/Engine/Actors/UActor.h"
 #include "Packages/Engine/Actors/Info/ULevelInfo.h"
 #include "Packages/Engine/Resources/Level/ULevel.h"
@@ -65,6 +66,20 @@ bool NameStringToEventName(const NameString& name, EventName& eventName)
 	return true;
 }
 
+static ExpressionValue SafeCallEvent(UFunction* func, UObject* Context, Array<ExpressionValue>& args)
+{
+	// Script errors in an engine-called event (Touch, Tick, timers...) are logged; the game goes on.
+	try
+	{
+		return Frame::Call(func, Context, { args.data(), args.size() });
+	}
+	catch (const std::exception& e)
+	{
+		LogMessage(std::string("Script error in event ") + func->Name.ToString() + ": " + e.what());
+		return ExpressionValue::NothingValue();
+	}
+}
+
 ExpressionValue CallEvent(UObject* Context, EventName eventname, Array<ExpressionValue> args)
 {
 	if (!Context->IsEventEnabled(eventname))
@@ -78,7 +93,7 @@ ExpressionValue CallEvent(UObject* Context, EventName eventname, Array<Expressio
 
 	UFunction* func = FindEventFunction(Context, ToNameString(eventname));
 	if (func)
-		return Frame::Call(func, Context, { args.data(), args.size() });
+		return SafeCallEvent(func, Context, args);
 	else
 		return ExpressionValue::NothingValue();
 }
@@ -96,7 +111,7 @@ ExpressionValue CallEvent(UObject* Context, const NameString& name, Array<Expres
 
 	UFunction* func = FindEventFunction(Context, name);
 	if (func)
-		return Frame::Call(func, Context, { args.data(), args.size() });
+		return SafeCallEvent(func, Context, args);
 	else
 		return ExpressionValue::NothingValue();
 }

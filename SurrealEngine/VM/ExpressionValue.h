@@ -16,7 +16,7 @@ public:
 			Ptr = (Type != ExpressionValueType::Nothing) ? &Buffer : nullptr;
 			switch (Type)
 			{
-			default: Buffer = v.Buffer; break;
+			default: Buffer.Bool32 = v.Buffer.Bool32; break;
 			case ExpressionValueType::ValueVector: new(PtrByte) vec3(*v.PtrVector); break;
 			case ExpressionValueType::ValueRotator: new(PtrByte) Rotator(*v.PtrRotator); break;
 			case ExpressionValueType::ValueString: new(PtrByte) std::string(*v.PtrString); break;
@@ -44,7 +44,7 @@ public:
 			Ptr = (Type != ExpressionValueType::Nothing) ? &Buffer : nullptr;
 			switch (Type)
 			{
-			default: Buffer = v.Buffer; break;
+			default: Buffer.Bool32 = v.Buffer.Bool32; break;
 			case ExpressionValueType::ValueVector: new(PtrByte) vec3(std::move(*v.PtrVector)); break;
 			case ExpressionValueType::ValueRotator: new(PtrByte) Rotator(std::move(*v.PtrRotator)); break;
 			case ExpressionValueType::ValueString: new(PtrByte) std::string(std::move(*v.PtrString)); break;
@@ -77,7 +77,7 @@ public:
 				Ptr = (Type != ExpressionValueType::Nothing) ? &Buffer : nullptr;
 				switch (Type)
 				{
-				default: Buffer = v.Buffer; break;
+				default: Buffer.Bool32 = v.Buffer.Bool32; break;
 				case ExpressionValueType::ValueVector: new(PtrByte) vec3(*v.PtrVector); break;
 				case ExpressionValueType::ValueRotator: new(PtrByte) Rotator(*v.PtrRotator); break;
 				case ExpressionValueType::ValueString: new(PtrByte) std::string(*v.PtrString); break;
@@ -223,24 +223,29 @@ private:
 	{
 		if (!VariableProperty)
 		{
-			switch (Type)
-			{
-			default: break;
-			case ExpressionValueType::ValueVector: PtrVector->~vec3(); break;
-			case ExpressionValueType::ValueRotator: PtrRotator->~Rotator(); break;
-			case ExpressionValueType::ValueString: PtrString->~basic_string(); break;
-			case ExpressionValueType::ValueName: PtrName->~NameString(); break;
-			case ExpressionValueType::ValueColor: PtrColor->~Color(); break;
-			case ExpressionValueType::ValueStruct: GetStructValue()->~StructValue(); break;
-			case ExpressionValueType::ValueArray: GetArrayValue()->~ArrayValue(); break;
-			case ExpressionValueType::ValueCoords: PtrCoords->~Coords(); break;
-			case ExpressionValueType::ValueQuat: PtrQuat->~quaternion(); break;
-			}
+			static_assert(std::is_trivially_destructible_v<vec3> && std::is_trivially_destructible_v<Rotator> && std::is_trivially_destructible_v<Color> &&
+				std::is_trivially_destructible_v<Coords> && std::is_trivially_destructible_v<quaternion>, "ExpressionValue::Deinit fast path");
+			constexpr uint32_t owning = (1u << (unsigned)ExpressionValueType::ValueString) | (1u << (unsigned)ExpressionValueType::ValueName) |
+				(1u << (unsigned)ExpressionValueType::ValueStruct) | (1u << (unsigned)ExpressionValueType::ValueArray);
+			if (owning & (1u << (unsigned)Type))
+				DeinitOwning();
 			Type = ExpressionValueType::Nothing;
 		}
 		else
 		{
 			VariableProperty = nullptr;
+		}
+	}
+
+	__attribute__((noinline)) void DeinitOwning()
+	{
+		switch (Type)
+		{
+		default: break;
+		case ExpressionValueType::ValueString: PtrString->~basic_string(); break;
+		case ExpressionValueType::ValueName: PtrName->~NameString(); break;
+		case ExpressionValueType::ValueStruct: GetStructValue()->~StructValue(); break;
+		case ExpressionValueType::ValueArray: GetArrayValue()->~ArrayValue(); break;
 		}
 	}
 
@@ -295,7 +300,7 @@ private:
 // Pass by value
 template<> inline ScriptArray ExpressionValue::ToType() { return ToArray(); }
 template<> inline uint8_t ExpressionValue::ToType() { return ToByte(); }
-template<> inline int32_t ExpressionValue::ToType() { return ToInt(); }
+template<> inline int ExpressionValue::ToType() { return ToInt(); }
 template<> inline bool ExpressionValue::ToType() { return ToBool(); }
 template<> inline float ExpressionValue::ToType() { return ToFloat(); }
 template<> inline UObject* ExpressionValue::ToType() { return ToObject(); }
@@ -311,7 +316,7 @@ template<> inline quaternion ExpressionValue::ToType() { return ToQuat(); }
 // Pass by reference
 template<> inline ScriptArray& ExpressionValue::ToType() { CheckType(ExpressionValueType::ValueArray); return *static_cast<ScriptArray*>(Ptr); }
 template<> inline uint8_t& ExpressionValue::ToType() { CheckType(ExpressionValueType::ValueByte); return *PtrByte; }
-template<> inline int32_t& ExpressionValue::ToType() { CheckType(ExpressionValueType::ValueInt); return *PtrInt; }
+template<> inline int& ExpressionValue::ToType() { CheckType(ExpressionValueType::ValueInt); return *reinterpret_cast<int*>(PtrInt); }
 template<> inline BitfieldBool& ExpressionValue::ToType() { CheckType(ExpressionValueType::ValueBool); return BoolInfo; }
 template<> inline float& ExpressionValue::ToType() { CheckType(ExpressionValueType::ValueFloat); return *PtrFloat; }
 template<> inline UObject*& ExpressionValue::ToType() { CheckType(ExpressionValueType::ValueObject); return *PtrObject; }
@@ -326,7 +331,7 @@ template<> inline quaternion& ExpressionValue::ToType() { CheckType(ExpressionVa
 
 // Optional arguments
 template<> inline std::optional<uint8_t> ExpressionValue::ToType() { if (Type != ExpressionValueType::Nothing) return ToByte(); else return {}; }
-template<> inline std::optional<int32_t> ExpressionValue::ToType() { if (Type != ExpressionValueType::Nothing) return ToInt(); else return {}; }
+template<> inline std::optional<int> ExpressionValue::ToType() { if (Type != ExpressionValueType::Nothing) return ToInt(); else return {}; }
 template<> inline std::optional<bool> ExpressionValue::ToType() { if (Type != ExpressionValueType::Nothing) return ToBool(); else return {}; }
 template<> inline std::optional<float> ExpressionValue::ToType() { if (Type != ExpressionValueType::Nothing) return ToFloat(); else return {}; }
 template<> inline std::optional<UObject*> ExpressionValue::ToType() { if (Type != ExpressionValueType::Nothing) return ToObject(); else return {}; }
@@ -342,7 +347,7 @@ template<> inline std::optional<quaternion> ExpressionValue::ToType() { if (Type
 // Optional pass by reference
 template<> inline ScriptArray* ExpressionValue::ToType() { if (Type == ExpressionValueType::Nothing) return nullptr; CheckType(ExpressionValueType::ValueArray); return static_cast<ScriptArray*>(Ptr); }
 template<> inline uint8_t* ExpressionValue::ToType() { if (Type == ExpressionValueType::Nothing) return nullptr; CheckType(ExpressionValueType::ValueByte); return PtrByte; }
-template<> inline int32_t* ExpressionValue::ToType() { if (Type == ExpressionValueType::Nothing) return nullptr; CheckType(ExpressionValueType::ValueInt); return PtrInt; }
+template<> inline int* ExpressionValue::ToType() { if (Type == ExpressionValueType::Nothing) return nullptr; CheckType(ExpressionValueType::ValueInt); return reinterpret_cast<int*>(PtrInt); }
 template<> inline BitfieldBool ExpressionValue::ToType() { if (Type == ExpressionValueType::Nothing) return { nullptr }; CheckType(ExpressionValueType::ValueBool); return BoolInfo; }
 template<> inline float* ExpressionValue::ToType() { if (Type == ExpressionValueType::Nothing) return nullptr; CheckType(ExpressionValueType::ValueFloat); return PtrFloat; }
 template<> inline UObject** ExpressionValue::ToType() { if (Type == ExpressionValueType::Nothing) return nullptr; CheckType(ExpressionValueType::ValueObject); return PtrObject; }

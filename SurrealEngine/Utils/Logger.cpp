@@ -18,6 +18,11 @@ void LogUnimplemented(const std::string& message)
 
 void Logger::LogMessage(const std::string& message)
 {
+#ifdef __N64__
+	// N64 port: log to the debug channel, keep nothing in RAM (the log only grows)
+	printf("[log] %s\n", message.c_str());
+	return;
+#endif
 	if (!Frame::Callstack.empty() && Frame::Callstack.back()->GetFunc())
 	{
 		std::string name;
