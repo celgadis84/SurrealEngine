@@ -87,6 +87,9 @@ void UFont::Save(PackageStreamWriter* stream)
 
 FontGlyph UFont::GetGlyph(char c) const
 {
+#ifdef __N64__
+	if (DelayLoad) const_cast<UFont*>(this)->LoadNow();
+#endif
 	FontGlyph glyph = FindGlyph(c);
 	if (glyph.USize == 0)
 	{

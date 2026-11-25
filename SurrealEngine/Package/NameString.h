@@ -14,7 +14,11 @@ public:
 
 	bool IsNone() const { return CompareIndex == 0; }
 
+#ifdef UE_K64TABLES
+	const std::string& ToString() const { return SpellN64(SpelledIndex); }
+#else
 	const std::string& ToString() const { return Names[SpelledIndex]; }
+#endif
 
 	bool operator==(const char* other) const { return *this == NameString(other); }
 	bool operator==(const std::string& other) const { return *this == NameString(other); }
@@ -30,12 +34,28 @@ public:
 
 	int GetCompareIndex() const { return CompareIndex; }
 
+#ifdef UE_K64TABLES
+	// N64 port: baked name pool (baker/unrtab.py -> System/names.k64nm), loaded by main() before
+	// the static constructors. Ids 0..PoolN-1 = pool spellings (0 = None), CompareIndex = first id
+	// of the case-insensitive run; names first seen at run time get ids >= 0x10000 (Names).
+	static bool LoadPoolN64(const char* path);
+	static int PoolCountN64() { return PoolN; }
+	static int PoolCmpN64(int id) { while (PoolSame[id >> 3] & (1 << (id & 7))) id--; return id; }
+	static NameString FromPoolN64(int id) { NameString n; n.CompareIndex = PoolCmpN64(id); n.SpelledIndex = id; return n; }
+	static int MaterializedN64();
+	static int DynamicCountN64() { return (int)Names.size(); }
+#endif
+
 private:
 	int CompareIndex = 0;
 	int SpelledIndex = 0;
 
 	void GetIndex(const std::string& value)
 	{
+#ifdef __N64__
+		GetIndexN64(value);
+		return;
+#endif
 		// Have we seen this spelling before?
 		auto it = SpellStringToIndex.find(value);
 		if (it != SpellStringToIndex.end())
@@ -110,4 +130,73 @@ private:
 	static Array<std::string> Names;
 	static std::unordered_map<std::string, int> CompareStringToIndex;
 	static std::unordered_map<std::string, std::pair<int, int>> SpellStringToIndex;
+#ifdef __N64__
+	// N64 port: compact interner (NameString.cpp). One string per spelling, CompareIndex = the
+	// spelled index of the first spelling; open-addressing tables of indices, no string copies.
+	void GetIndexN64(const std::string& value);
+	static Array<int> CompareOf;
+	static Array<int> SpellSlots;
+	static Array<int> CmpSlots;
+#endif
+#ifdef UE_K64TABLES
+	static const std::string& SpellN64(int idx);
+	static int PoolN;
+	static const uint8_t* PoolSame;
+#endif
 };
+
+#ifdef __N64__
+// N64 port: per-package NameString -> index map (find / end / operator[] of the std::map it
+// replaces), open addressing on CompareIndex: ~21 B per name instead of a 48 B tree node.
+class NameIndexMap
+{
+public:
+	struct Slot { NameString first; int second = 0; bool used = false; };
+
+	Slot* find(const NameString& key)
+	{
+		if (slots.empty()) return nullptr;
+		size_t i = Probe(key);
+		return slots[i].used ? &slots[i] : nullptr;
+	}
+	Slot* end() { return nullptr; }
+
+	int& operator[](const NameString& key)
+	{
+		if ((count + 1) * 4 > slots.size() * 3) Grow();
+		size_t i = Probe(key);
+		if (!slots[i].used)
+		{
+			slots[i].first = key;
+			slots[i].second = 0;
+			slots[i].used = true;
+			count++;
+		}
+		return slots[i].second;
+	}
+
+	void reserve(size_t n)
+	{
+		while (n * 4 > slots.size() * 3) Grow();
+	}
+
+private:
+	size_t Probe(const NameString& key) const
+	{
+		size_t mask = slots.size() - 1;
+		size_t i = ((uint32_t)key.GetCompareIndex() * 2654435761u) & mask;
+		while (slots[i].used && slots[i].first != key) i = (i + 1) & mask;
+		return i;
+	}
+	void Grow()
+	{
+		Array<Slot> old = std::move(slots);
+		slots = Array<Slot>();
+		slots.resize(old.empty() ? 64 : old.size() * 2);
+		for (Slot& s : old)
+			if (s.used) slots[Probe(s.first)] = s;
+	}
+	Array<Slot> slots;
+	size_t count = 0;
+};
+#endif

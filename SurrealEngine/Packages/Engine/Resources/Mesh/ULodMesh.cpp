@@ -77,7 +77,7 @@ void ULodMesh::Load(ObjectStream* stream)
 	// Build smoothed normals
 	Normals.clear();
 	Normals.resize(Verts.size(), vec3(0.0f));
-	for (int frame = 0; frame < AnimFrames; frame++)
+	for (int frame = 0; !Verts.empty() && frame < AnimFrames; frame++)
 	{
 		for (const MeshFace& face : Faces)
 		{

@@ -15,6 +15,9 @@ public:
 
 	void PreRenderWindows(UCanvas* canvas);
 	void PostRenderWindows(UCanvas* canvas);
+#ifdef __N64__
+	void K64Hud() { ResetCanvas(); PostRender(); }
+#endif
 	void DrawWindowInfo(UFont* font, UWindow* window, int depth, float& curY);
 	void DrawWindow(UWindow* window, float offsetX, float offsetY);
 	void ResetWindowGC(UWindow* window, float offsetX, float offsetY);

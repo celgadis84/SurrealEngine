@@ -82,8 +82,15 @@ std::unique_ptr<OpenFolderDialog> DisplayBackend::CreateOpenFolderDialog(Display
 #pragma warning(disable: 4996) // warning C4996 : 'getenv' : This function or variable may be unsafe.Consider using _dupenv_s instead.To disable deprecation, use _CRT_SECURE_NO_WARNINGS.See online help for details.
 #endif
 
+#ifdef __N64__
+// N64 port: the only display backend is the port's one (engine/k64_display.cpp)
+std::unique_ptr<DisplayBackend> K64CreateDisplayBackend();
+#endif
 std::unique_ptr<DisplayBackend> DisplayBackend::TryCreateBackend()
 {
+#ifdef __N64__
+	return K64CreateDisplayBackend();
+#endif
 	std::unique_ptr<DisplayBackend> backend;
 	// Check if there is an environment variable specified for the desired backend
 	const char* backendSelectionEnv = std::getenv("SURREALWIDGETS_DISPLAY_BACKEND");

@@ -642,6 +642,8 @@ std::shared_ptr<PackageStream> PackageManager::GetStream(Package* package)
 	return openStreams.front().Stream;
 }
 
+extern "C" { uint32_t k64_hud_hash(const char* name); int k64_hud_has(uint32_t name_hash); }
+
 void PackageManager::DelayLoadNow()
 {
 	while (!delayLoads.empty())
@@ -650,7 +652,19 @@ void PackageManager::DelayLoadNow()
 
 		UObject* obj = delayLoads.back();
 		delayLoads.pop_back();
+#ifdef __N64__
+		if (obj->DelayLoad && (UObject::TryCast<UPalette>(obj) || (UObject::TryCast<UBitmap>(obj) && !(k64_hud_has(k64_hud_hash(obj->Name.ToString().c_str())) || k64_hud_has(k64_hud_hash((obj->DelayLoad->package->GetPackageName().ToString() + "." + obj->Name.ToString()).c_str())))) || UObject::TryCast<UPolys>(obj) || (UObject::TryCast<UModel>(obj) && obj->DelayLoad->package->GetExportEntry(obj->DelayLoad->Index + 1)->ObjSize < 1000)))
+			continue;
+		try { obj->LoadNow(); }
+		catch (...)
+		{
+			printf("[ue] DBG loading %s class %s export %d\n", obj->Name.ToString().c_str(),
+				obj->Class ? obj->Class->Name.ToString().c_str() : "?", (int)obj->exportIndex);
+			throw;
+		}
+#else
 		obj->LoadNow();
+#endif
 	}
 }
 

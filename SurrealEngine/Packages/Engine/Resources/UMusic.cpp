@@ -10,8 +10,12 @@ void UMusic::Load(ObjectStream* stream)
 	if (stream->GetVersion() > 61)
 		stream->ReadUInt32(); // lazy array skip offset
 	uint32_t size = stream->ReadIndex();
+#ifdef __N64__
+	stream->Seek(stream->Tell() + size);
+#else
 	Data.resize(size);
 	stream->ReadBytes(Data.data(), size);
+#endif
 }
 
 void UMusic::Save(PackageStreamWriter* stream)

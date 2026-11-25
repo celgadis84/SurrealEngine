@@ -13,6 +13,8 @@
 void NPawn::RegisterFunctions()
 {
 	RegisterVMNativeFunc_0("Pawn", "AddPawn", &NPawn::AddPawn, 529);
+	if (engine->LaunchInfo.IsUnreal1_227())
+		RegisterVMNativeFunc_3("Pawn", "AllInventory", &NPawn::AllInventory, 321);
 	if (!engine->LaunchInfo.IsDeusEx())
 		RegisterVMNativeFunc_9("Pawn", "AIPickRandomDestination", &NPawn::AIPickRandomDestination, 709);
 	else
@@ -68,6 +70,43 @@ void NPawn::RegisterFunctions()
 		RegisterVMNativeFunc_1("Pawn", "ComputePathnodeDistances", &NPawn::ComputePathnodeDistances, 1020);
 		RegisterVMNativeFunc_5("Pawn", "ReachablePathnodes", &NPawn::ReachablePathnodes, 1004);
 	}
+}
+
+#include "VM/Iterator.h"
+#include "Packages/Engine/Actors/UActor.h"
+#include "Packages/Engine/Actors/Inventory/UInventory.h"
+class AllInventoryIterator : public Iterator
+{
+public:
+	AllInventoryIterator(UObject* Self, UObject* BaseClass, UObject** Inv, bool bExact) : BaseClass(BaseClass), Inv(Inv), bExact(bExact)
+	{
+		UActor* a = UObject::TryCast<UActor>(Self);
+		cur = a ? a->Inventory() : nullptr;
+	}
+	bool Next() override
+	{
+		for (int guard = 0; cur && guard < 4096; guard++)
+		{
+			UActor* it = cur;
+			cur = it->Inventory();
+			if (bExact ? ((UObject*)it->Class == BaseClass) : it->IsA(BaseClass->Name))
+			{
+				*Inv = it;
+				return true;
+			}
+		}
+		*Inv = nullptr;
+		return false;
+	}
+	UObject* BaseClass;
+	UObject** Inv;
+	bool bExact;
+	UActor* cur = nullptr;
+};
+
+void NPawn::AllInventory(UObject* Self, UObject* BaseClass, UObject*& Inv, std::optional<bool> bExactClass)
+{
+	Frame::CreatedIterator = std::make_unique<AllInventoryIterator>(Self, BaseClass, &Inv, bExactClass ? *bExactClass : false);
 }
 
 void NPawn::AddPawn(UObject* Self)

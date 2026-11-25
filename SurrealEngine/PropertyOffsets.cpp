@@ -5603,14 +5603,18 @@ void InitPropertyOffsets(PackageManager* packages)
 	InitPropertyOffsets_WarpZoneMarker(packages);
 	InitPropertyOffsets_LiftCenter(packages);
 	InitPropertyOffsets_RenderIterator(packages);
+#ifndef __N64__
 	InitPropertyOffsets_InternetLink(packages);
 	InitPropertyOffsets_UdpLink(packages);
 	InitPropertyOffsets_TcpLink(packages);
+#endif
 	InitPropertyOffsets_RMusic_Player(packages);
 	if (packages->IsUnreal1())
 	{
+#ifndef __N64__
 		InitPropertyOffsets_UPakPathNodeIterator(packages);
 		InitPropertyOffsets_UPakPawnPathNodeIterator(packages);
+#endif
 	}
 	if (packages->IsUnreal1_227())
 	{
@@ -5618,6 +5622,7 @@ void InitPropertyOffsets(PackageManager* packages)
 		InitPropertyOffsets_WeaponMuzzleFlash(packages);
 		InitPropertyOffsets_WeaponAttachment(packages);
 		InitPropertyOffsets_DistantLightActor(packages);
+#ifndef __N64__
 		InitPropertyOffsets_XParticleEmitter(packages);
 		InitPropertyOffsets_XParticleForces(packages);
 		InitPropertyOffsets_VelocityForce(packages);
@@ -5631,6 +5636,7 @@ void InitPropertyOffsets(PackageManager* packages)
 		InitPropertyOffsets_XTrailEmitter(packages);
 		InitPropertyOffsets_XWeatherEmitter(packages);
 		InitPropertyOffsets_XRainRestrictionVolume(packages);
+#endif
 		InitPropertyOffsets_DynamicZoneInfo(packages);
 		InitPropertyOffsets_Projector(packages);
 		InitPropertyOffsets_StaticLightData(packages);

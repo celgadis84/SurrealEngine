@@ -51,6 +51,12 @@ public:
 	uint8_t& Style() { return Value<uint8_t>(PropOffsets_Canvas.Style); }
 	UViewport*& Viewport() { return Value<UViewport*>(PropOffsets_Canvas.Viewport); }
 	float& Z() { return Value<float>(PropOffsets_Canvas.Z); }
+#ifdef __N64__
+	BitfieldBool SafeBool(PropertyDataOffset o) { static uint32_t z; if (o.DataOffset >= PropertyData.Size) { BitfieldBool b; z = 0; b.Ptr = &z; b.Mask = 1; return b; } return BoolValue(o); }
+	BitfieldBool bCenter() { return SafeBool(PropOffsets_Canvas.bCenter); }
+	BitfieldBool bNoSmooth() { return SafeBool(PropOffsets_Canvas.bNoSmooth); }
+#else
 	BitfieldBool bCenter() { return BoolValue(PropOffsets_Canvas.bCenter); }
 	BitfieldBool bNoSmooth() { return BoolValue(PropOffsets_Canvas.bNoSmooth); }
+#endif
 };

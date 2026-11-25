@@ -27,28 +27,28 @@ int16_t PackageStream::ReadInt16()
 {
 	int16_t t;
 	ReadBytes(&t, 2);
-	return t;
+	return BSWAP16(t);
 }
 
 int32_t PackageStream::ReadInt32()
 {
 	int32_t t;
 	ReadBytes(&t, 4);
-	return t;
+	return BSWAP32(t);
 }
 
 int64_t PackageStream::ReadInt64()
 {
 	int64_t t;
 	ReadBytes(&t, 8);
-	return t;
+	return BSWAP64(t);
 }
 
 float PackageStream::ReadFloat()
 {
 	float t;
 	ReadBytes(&t, 4);
-	return t;
+	return BSWAP32(t);
 }
 
 uint8_t PackageStream::ReadUInt8()
@@ -170,21 +170,25 @@ void PackageStreamWriter::WriteInt8(int8_t v)
 
 void PackageStreamWriter::WriteInt16(int16_t v)
 {
+	v = BSWAP16(v);
 	WriteBytes(&v, 2);
 }
 
 void PackageStreamWriter::WriteInt32(int32_t v)
 {
+	v = BSWAP32(v);
 	WriteBytes(&v, 4);
 }
 
 void PackageStreamWriter::WriteInt64(int64_t v)
 {
+	v = BSWAP64(v);
 	WriteBytes(&v, 8);
 }
 
 void PackageStreamWriter::WriteFloat(float v)
 {
+	v = BSWAP32(v);
 	WriteBytes(&v, 4);
 }
 
@@ -195,16 +199,19 @@ void PackageStreamWriter::WriteUInt8(uint8_t v)
 
 void PackageStreamWriter::WriteUInt16(uint16_t v)
 {
+	v = BSWAP16(v);
 	WriteBytes(&v, 2);
 }
 
 void PackageStreamWriter::WriteUInt32(uint32_t v)
 {
+	v = BSWAP32(v);
 	WriteBytes(&v, 4);
 }
 
 void PackageStreamWriter::WriteUInt64(uint64_t v)
 {
+	v = BSWAP64(v);
 	WriteBytes(&v, 8);
 }
 

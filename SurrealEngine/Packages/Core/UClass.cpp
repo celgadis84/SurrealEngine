@@ -1,6 +1,9 @@
 
 #include "Precomp.h"
 #include "UClass.h"
+#ifdef __N64__
+extern "C" void k64_printf(const char* fmt, ...);
+#endif
 #include "UEnum.h"
 #include "UFunction.h"
 #include "Properties/UPointerProperty.h"
@@ -378,6 +381,10 @@ void UClass::LoadProperties(PropertyDataBlock* propertyBlock)
 					}
 					else
 					{
+#ifdef __N64__
+						k64_printf("[ue] cfg skip %s.%s (unsupported type)\n", Name.ToString().c_str(), name.ToString().c_str());
+						continue;
+#endif
 						Exception::Throw("localize keyword used on unsupported property type");
 					}
 				}

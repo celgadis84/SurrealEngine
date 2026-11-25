@@ -5,6 +5,7 @@
 #include "Packages/Engine/Actors/UActor.h"
 #include "Properties/UProperty.h"
 #include "Properties/UBoolProperty.h"
+#include "Properties/UByteProperty.h"
 #include "Package/Package.h"
 #include "Package/PackageManager.h"
 #include "VM/ScriptCall.h"
@@ -23,8 +24,47 @@ UObject::~UObject()
 {
 }
 
+// DBG census: exclusive heap growth of LoadNow per object class (dumped at OOM)
+extern "C" unsigned ue_heap_used(void);
+struct DbgCensusEntry { NameString cls; int bytes; int count; };
+static DbgCensusEntry dbg_census[128];
+static int dbg_census_n, dbg_child;
+extern "C" void ue_dbg_census(void)
+{
+	for (int k = 0; k < 40; k++)
+	{
+		int best = -1;
+		for (int i = 0; i < dbg_census_n; i++)
+			if (dbg_census[i].count && (best < 0 || dbg_census[i].bytes > dbg_census[best].bytes))
+				best = i;
+		if (best < 0)
+			break;
+		printf("[ue] DBG census %-24s %6d KB  %5d objs\n", dbg_census[best].cls.ToString().c_str(), dbg_census[best].bytes >> 10, dbg_census[best].count);
+		dbg_census[best].count = 0;
+	}
+}
+struct DbgScope
+{
+	UObject* obj; int d0, saved;
+	DbgScope(UObject* o) : obj(o), d0((int)ue_heap_used()), saved(dbg_child) { dbg_child = 0; }
+	~DbgScope()
+	{
+		int total = (int)ue_heap_used() - d0;
+		int excl = total - dbg_child;
+		dbg_child = saved + total;
+		NameString c = obj->Class ? obj->Class->Name : NameString("Class");
+		int i = 0;
+		while (i < dbg_census_n && dbg_census[i].cls != c) i++;
+		if (i == dbg_census_n && dbg_census_n < 128) dbg_census[dbg_census_n++] = { c, 0, 0 };
+		if (i < 128) { dbg_census[i].bytes += excl; dbg_census[i].count++; }
+	}
+};
+
 void UObject::LoadNow()
 {
+#ifdef UE_DBG_CENSUS
+	DbgScope dbgscope(this); // DBG
+#endif
 	if (DelayLoad)
 	{
 		auto info = std::move(DelayLoad);
@@ -32,6 +72,11 @@ void UObject::LoadNow()
 		if (!stream->IsEmptyStream())
 		{
 			Load(stream.get());
+#ifdef __N64__
+			if (!PropertyData.Data) // fields with no tags have no block (above)
+				NoBlockOuter = info->Outer;
+			else
+#endif
 			SetObject("Outer", info->Outer);
 		}
 		else if (auto s = UObject::TryCast<UStruct>(this))
@@ -119,6 +164,15 @@ void UObject::Load(ObjectStream* stream)
 
 	if (!UObject::TryCast<UClass>(this))
 	{
+#ifdef __N64__
+		if (UObject::TryCast<UField>(this))
+		{
+			uint32_t pos = stream->Tell();
+			if (stream->ReadName() == "None")
+				return;
+			stream->Seek(pos);
+		}
+#endif
 		PropertyData.Init(Class);
 		PropertyData.Load(stream);
 		if (Class && !Class->Properties.empty())
@@ -320,6 +374,16 @@ void UObject::SetInt(const NameString& name, uint32_t value)
 void UObject::SetBool(const NameString& name, bool value)
 {
 	UProperty* prop = GetMemberProperty(name);
+	if (!prop)
+		return;
+	// bDuck, bFire, bRun... are 'input byte' properties, not bitfield bools
+	if (UByteProperty* byteprop = UObject::TryCast<UByteProperty>(prop))
+	{
+		*static_cast<uint8_t*>(PropertyData.Ptr(byteprop)) = value ? 1 : 0;
+		return;
+	}
+	if (!UObject::TryCast<UBoolProperty>(prop))
+		return;
 	static_cast<UBoolProperty*>(prop)->SetBool(PropertyData.Ptr(prop), value);
 }
 
@@ -720,7 +784,22 @@ void PropertyDataBlock::Load(ObjectStream* stream)
 			Exception::Throw("Array property is out of bounds!");
 
 		prop->Flags |= ObjectFlags::TagExp;
+#ifdef __N64__
+		uint32_t dbgpos = stream->Tell();
+		try { prop->LoadValue(static_cast<uint8_t*>(data) + header.arrayIndex * prop->ElementPitch(), stream, header); }
+		catch (...)
+		{
+			printf("[ue] DBG prop %s type %d size %d idx %d\n", name.ToString().c_str(), (int)header.type, (int)header.size, (int)header.arrayIndex);
+			stream->Seek(dbgpos);
+			printf("[ue] DBG bytes at value:");
+			for (int i = 0; i < 8; i++) printf(" %02x", (unsigned)(uint8_t)stream->ReadInt8());
+			stream->Seek(dbgpos);
+			printf(" index=%d\n", (int)stream->ReadIndex());
+			throw;
+		}
+#else
 		prop->LoadValue(static_cast<uint8_t*>(data) + header.arrayIndex * prop->ElementPitch(), stream, header);
+#endif
 	}
 }
 

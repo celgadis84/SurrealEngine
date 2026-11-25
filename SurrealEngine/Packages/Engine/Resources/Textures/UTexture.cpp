@@ -14,8 +14,12 @@ void UTexture::Load(ObjectStream* stream)
 		if (stream->GetVersion() >= 63)
 			widthoffset = stream->ReadInt32();
 		int bytes = stream->ReadIndex();
+#ifdef __N64__
+		stream->Seek(stream->Tell() + bytes);
+#else
 		mipmap.Data.resize(bytes);
 		stream->ReadBytes(mipmap.Data.data(), bytes);
+#endif
 		mipmap.Width = stream->ReadUInt32();
 		mipmap.Height = stream->ReadUInt32();
 		mipmap.UBits = stream->ReadUInt8();
@@ -32,8 +36,12 @@ void UTexture::Load(ObjectStream* stream)
 			if (stream->GetVersion() >= 68)
 				widthoffset = stream->ReadInt32();
 			int bytes = stream->ReadIndex();
+#ifdef __N64__
+			stream->Seek(stream->Tell() + bytes);
+#else
 			mipmap.Data.resize(bytes);
 			stream->ReadBytes(mipmap.Data.data(), bytes);
+#endif
 			mipmap.Width = stream->ReadUInt32();
 			mipmap.Height = stream->ReadUInt32();
 			mipmap.UBits = stream->ReadUInt8();

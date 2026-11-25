@@ -11,6 +11,9 @@ void UMesh::Load(ObjectStream* stream)
 	uint32_t VertsSkipOffset = 0;
 	if (stream->GetVersion() > 61) VertsSkipOffset = stream->ReadUInt32();
 	int NumVerts = stream->ReadIndex();
+#ifdef __N64__
+	if (VertsSkipOffset) { stream->Seek(VertsSkipOffset); NumVerts = 0; }
+#endif
 
 	// XXX: Something to consider if we decide to load DeusEx packages
 	//      without necessarily running DeusEx, we will need some kind
@@ -26,6 +29,9 @@ void UMesh::Load(ObjectStream* stream)
 				int16_t x, y, z, padding;
 			} packedvertex;
 			stream->ReadBytes(&packedvertex, sizeof(DeusExVertex));
+			packedvertex.x = BSWAP16(packedvertex.x);
+			packedvertex.y = BSWAP16(packedvertex.y);
+			packedvertex.z = BSWAP16(packedvertex.z);
 			vec3 vertex = { (float)packedvertex.x, (float)packedvertex.y, (float)packedvertex.z };
 			Verts.push_back(vertex);
 		}
@@ -45,6 +51,9 @@ void UMesh::Load(ObjectStream* stream)
 	uint32_t TrisSkipOffset = 0;
 	if (stream->GetVersion() > 61) TrisSkipOffset = stream->ReadUInt32();
 	int NumTris = stream->ReadIndex();
+#ifdef __N64__
+	if (TrisSkipOffset) { stream->Seek(TrisSkipOffset); NumTris = 0; }
+#endif
 	for (int i = 0; i < NumTris; i++)
 	{
 		MeshTri tri;
@@ -88,6 +97,9 @@ void UMesh::Load(ObjectStream* stream)
 	uint32_t ConnectsSkipOffset = 0;
 	if (stream->GetVersion() > 61) ConnectsSkipOffset = stream->ReadUInt32();
 	int NumConnects = stream->ReadIndex();
+#ifdef __N64__
+	if (ConnectsSkipOffset) { stream->Seek(ConnectsSkipOffset); NumConnects = 0; }
+#endif
 	for (int i = 0; i < NumConnects; i++)
 	{
 		MeshVertConnect connect;
@@ -114,6 +126,9 @@ void UMesh::Load(ObjectStream* stream)
 	uint32_t VertLinksSkipOffset = 0;
 	if (stream->GetVersion() > 61) VertLinksSkipOffset = stream->ReadUInt32();
 	int NumVertLinks = stream->ReadIndex();
+#ifdef __N64__
+	if (VertLinksSkipOffset) { stream->Seek(VertLinksSkipOffset); NumVertLinks = 0; }
+#endif
 	for (int i = 0; i < NumVertLinks; i++)
 	{
 		VertLinks.push_back(stream->ReadInt32());

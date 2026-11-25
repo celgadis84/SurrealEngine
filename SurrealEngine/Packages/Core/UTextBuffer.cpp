@@ -10,6 +10,14 @@ void UTextBuffer::Load(ObjectStream* stream)
 	Top = stream->ReadUInt32();
 
 	int size = stream->ReadIndex();
+#ifdef __N64__
+	// N64 port: script source text is only for the compiler / debugger (460 KB of Engine.u)
+	if (size > 0)
+	{
+		stream->Seek(stream->Tell() + size);
+		size = 0;
+	}
+#endif
 	if (size > 0)
 	{
 		Text.resize(size);

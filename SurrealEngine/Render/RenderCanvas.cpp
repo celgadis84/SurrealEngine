@@ -128,6 +128,9 @@ void RenderSubsystem::PostRenderFlash()
 
 void RenderSubsystem::DrawActor(UActor* actor, bool WireFrame, bool ClearZ)
 {
+#ifdef __N64__
+	{ extern void K64WeaponDraw(UActor*); K64WeaponDraw(actor); return; }
+#endif
 	Device->SetSceneNode(&MainFrame.Frame);
 	if (ClearZ)
 		Device->ClearZ();
@@ -178,6 +181,9 @@ void RenderSubsystem::DrawTile(UTexture* Tex, float x, float y, float XL, float 
 {
 	if (!Tex)
 		return;
+#ifdef __N64__
+	{ TextureInfo texinfo; texinfo.Texture = Tex; Device->DrawTile(&Canvas.Frame, texinfo, x * Canvas.uiscale, y * Canvas.uiscale, XL * Canvas.uiscale, YL * Canvas.uiscale, U, V, UL, VL, Z, color, fog, flags); return; }
+#endif
 	UpdateTexture(Tex);
 	Tex = Tex->GetAnimTexture();
 	UpdateTexture(Tex);
@@ -206,6 +212,9 @@ void RenderSubsystem::DrawTileClipped(UTexture* Tex, float orgX, float orgY, flo
 {
 	if (!Tex)
 		return;
+#ifdef __N64__
+	{ TextureInfo texinfo; texinfo.Texture = Tex; Rectf clipBox = Rectf::xywh(orgX, orgY, clipX, clipY); Rectf dest = Rectf::xywh(orgX + curX, orgY + curY, XL, YL); Rectf src = Rectf::xywh(U, V, UL, VL); DrawTile(texinfo, dest, src, clipBox, Z, color, fog, flags); return; }
+#endif
 	UpdateTexture(Tex);
 	Tex = Tex->GetAnimTexture();
 	UpdateTexture(Tex);
@@ -271,6 +280,9 @@ void RenderSubsystem::DrawTextBlockRange(float x, float y, const Array<std::stri
 
 			if (!glyph.Texture)
 				continue;
+#ifdef __N64__
+			{ TextureInfo ti; ti.Texture = glyph.Texture; Device->DrawTile(&Canvas.Frame, ti, x * Canvas.uiscale, y * Canvas.uiscale, (float)glyph.USize * Canvas.uiscale, (float)glyph.VSize * Canvas.uiscale, (float)glyph.StartU, (float)glyph.StartV, (float)glyph.USize, (float)glyph.VSize, 1.0f, color, vec4(0.0f), polyflags); x += glyph.USize + spaceX; continue; }
+#endif
 
 			TextureInfo texinfo;
 			texinfo.CacheID = (uint64_t)(ptrdiff_t)glyph.Texture;

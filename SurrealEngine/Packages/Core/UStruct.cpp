@@ -47,12 +47,22 @@ void UStruct::Load(ObjectStream* stream)
 	}
 	uint32_t rawEnd = stream->Tell();
 
+#ifdef __N64__
+	// N64 port: no raw copy (only package saving uses it); tree built on first use
+	(void)rawEnd;
+	Code.owner = this;
+	Code.package = stream->GetPackage();
+	Code.rawStart = rawStart;
+	Code.scriptSize = ScriptSize;
+	Bytecode = Array<uint8_t>(); // rebuilt from the package export on first use
+#else
 	// Keep a copy of the original stream as we can't write it yet for the save function
 	BytecodeRaw.resize(rawEnd - rawStart);
 	stream->Seek(rawStart);
 	stream->ReadBytes(BytecodeRaw.data(), (uint32_t)BytecodeRaw.size());
 
 	Code = std::make_shared<::Bytecode>(Bytecode, stream->GetPackage());
+#endif
 
 	Array<UProperty*> properties;
 
@@ -181,6 +191,25 @@ bool UStruct::IsEqual(const void* v1, const void* v2)
 	return true;
 }
 
+#ifdef __N64__
+::Bytecode* UStruct::LazyCode::get()
+{
+	if (!code && owner)
+	{
+		if (owner->Bytecode.size() == 0 && scriptSize > 0)
+		{
+			auto stream = package->OpenExportStream(owner->exportIndex, owner->Name, owner->Class);
+			stream->Seek(rawStart);
+			while (owner->Bytecode.size() < (size_t)scriptSize)
+				owner->ReadToken(stream.get(), 0);
+		}
+		code = std::make_shared<::Bytecode>(owner->Bytecode, package);
+		owner->Bytecode = Array<uint8_t>();
+	}
+	return code.get();
+}
+#endif
+
 int UStruct::GetStatementLine(Expression* statement)
 {
 	if (!Code)
@@ -202,6 +231,9 @@ int UStruct::GetStatementLine(Expression* statement)
 
 FunctionDebugInfo* UStruct::GetDebugInfo()
 {
+#ifdef __N64__
+	return nullptr;
+#endif
 	UTextBuffer* scriptText = nullptr;
 	UStruct* func = this;
 	do

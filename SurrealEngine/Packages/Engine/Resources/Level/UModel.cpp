@@ -29,14 +29,14 @@ void UModel::Load(ObjectStream* stream)
 		OldFormat.Surfaces->LoadNow();
 		OldFormat.Verts->LoadNow();
 
-		Vectors = OldFormat.Vectors->Vectors;
-		Points = OldFormat.Points->Vectors;
-		Nodes = OldFormat.Nodes->Nodes;
-		Zones = OldFormat.Nodes->Zones;
+		Vectors = std::move(OldFormat.Vectors->Vectors);
+		Points = std::move(OldFormat.Points->Vectors);
+		Nodes = std::move(OldFormat.Nodes->Nodes);
+		Zones = std::move(OldFormat.Nodes->Zones);
 		if (Zones.size() < 64)
 			Zones.resize(64);
-		Surfaces = OldFormat.Surfaces->Surfaces;
-		Vertices = OldFormat.Verts->Vertices;
+		Surfaces = std::move(OldFormat.Surfaces->Surfaces);
+		Vertices = std::move(OldFormat.Verts->Vertices);
 		NumSharedSides = OldFormat.Verts->NumSharedSides;
 	}
 	else
@@ -149,8 +149,12 @@ void UModel::Load(ObjectStream* stream)
 		LightMap.push_back(entry);
 	}
 
+#ifdef __N64__
+	{ int lbn = stream->ReadIndex(); stream->Skip((uint32_t)lbn); } // N64: sin LightBits
+#else
 	LightBits.resize(stream->ReadIndex());
 	stream->ReadBytes(LightBits.data(), (uint32_t)LightBits.size());
+#endif
 
 	count = stream->ReadIndex();
 	for (int i = 0; i < count; i++)
@@ -201,6 +205,9 @@ void UModel::Load(ObjectStream* stream)
 	// Calculate center and radius for all surface lightmaps:
 	for (BspSurface& surface : Surfaces)
 	{
+#ifdef __N64__
+		continue; // N64: sin lightmaps
+#endif
 		if (surface.LightMap < 0 || (size_t)surface.LightMap >= LightMap.size())
 			continue;
 

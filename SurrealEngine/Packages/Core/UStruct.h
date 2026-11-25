@@ -33,7 +33,23 @@ public:
 #endif
 	UStruct* StructParent = nullptr;
 	Array<uint8_t> Bytecode, BytecodeRaw;
+#ifdef __N64__
+	// N64 port: the script tree is built on first use (only functions that run get one; the
+	// trees of every loaded class ran the 4 MB heap out while Engine.u loaded)
+	struct LazyCode
+	{
+		UStruct* owner = nullptr;
+		Package* package = nullptr;
+		uint32_t rawStart = 0;
+		int scriptSize = 0;
+		std::shared_ptr<::Bytecode> code;
+		::Bytecode* get();
+		::Bytecode* operator->() { return get(); }
+		explicit operator bool() const { return owner != nullptr || code != nullptr; }
+	} Code;
+#else
 	std::shared_ptr<::Bytecode> Code;
+#endif
 
 	size_t StructAlignment = 1;
 	size_t StructSize = 0;

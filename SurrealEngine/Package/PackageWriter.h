@@ -35,7 +35,11 @@ private:
 	uint32_t ExportOffset = 0;
 	uint32_t ImportOffset = 0;
 
+#ifdef __N64__
+	NameIndexMap NameHash;
+#else
 	std::map<NameString, int> NameHash;
+#endif
 	std::map<UObject*, int> ObjRefHash;
 	std::map<NameString, int> PackageReferences;
 

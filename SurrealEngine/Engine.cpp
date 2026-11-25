@@ -2,6 +2,9 @@
 #include "Precomp.h"
 #include "Engine.h"
 #include "Utils/File.h"
+#ifdef __N64__
+extern "C" unsigned ue_heap_free(void); // syscalls.c (tick log)
+#endif
 #include "Utils/StrTools.h"
 #include "Utils/SHA1Sum.h"
 #include "Render/RenderSubsystem.h"
@@ -110,7 +113,9 @@ Engine::~Engine()
 	if (audiodev)
 		audiodev->ShutdownDevice();
 
+#ifndef __N64__
 	Logger::Get()->SaveLogAsPlaintext((Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt").string());
+#endif
 
 	engine = nullptr;
 }
@@ -122,7 +127,9 @@ void Engine::Run()
 	LogMessage("Loaded Engine settings");
 	LoadKeybindings();
 	LogMessage("Loaded key bindings");
+#ifndef __N64__
 	LogGamePackageSHA1Sums();
+#endif
 
 	OpenWindow();
 
@@ -157,8 +164,20 @@ void Engine::Run()
 
 	float currentZoneTimeDilation = 1.0f; // Unreal 227 allows zones to specify their own time dilations
 
+#ifdef __N64__
+	static int ue_tick_n = 0;
+	static uint64_t ue_tick_t0 = 0;
+#endif
 	while (!quit)
 	{
+#ifdef __N64__
+		if (++ue_tick_n % 30 == 0)
+		{
+			uint64_t ue_now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+			printf("[ue] tick %d heap free %u KB actors=%d ms=%d\n", ue_tick_n, ue_heap_free() >> 10, Level ? (int)Level->Actors.size() : 0, ue_tick_t0 ? (int)((ue_now - ue_tick_t0) / 30000) : 0);
+			ue_tick_t0 = ue_now;
+		}
+#endif
 		// Main game loop should consist of these 4 steps:
 		// Tick everything
 		// Render the scene
@@ -236,7 +255,14 @@ void Engine::Run()
 		UpdateAudio();
 
 		viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
+#ifndef __N64__
 		render->DrawGame(levelElapsed);
+#else
+		{ extern void K64ActorsSubmit(Engine*); K64ActorsSubmit(this); }
+		viewport->SetViewportRect(0, 0, 320, 240);
+		render->K64Hud();
+		k64_view_frame(CameraLocation.x, CameraLocation.y, CameraLocation.z, CameraRotation.Pitch, CameraRotation.Yaw, CameraRotation.Roll, CameraFovAngle);
+#endif
 
 		// Save the game if there is a request for it
 		if (SaveGameInfo.SaveGameSlot != DONT_SAVE_GAME)
@@ -694,6 +720,12 @@ void Engine::LoadMap(const UnrealURL& url, const std::map<std::string, std::stri
 
 	audiodev->StopSounds();
 	UnloadMap();
+#ifdef __N64__
+	{
+		extern void K64ActorsReset(const char* map);
+		K64ActorsReset(url.Map.c_str());
+	}
+#endif
 
 	// Load map objects
 
@@ -767,6 +799,14 @@ void Engine::LoadMap(const UnrealURL& url, const std::map<std::string, std::stri
 		if (!error.empty())
 			Exception::Throw("InitGame failed: " + error);
 
+#ifdef __N64__
+		LevelInfo->bHighDetailMode() = false;
+		{
+			int hdcull = 0, hdtot = 0;
+			for (size_t i = 0; i < Level->Actors.size(); i++) { UActor* a = Level->Actors[i]; if (a && a->bHighDetail()) { hdtot++; if (a->Destroy()) hdcull++; } }
+			printf("[ue] low detail: bHighDetail actors %d, destroyed %d\n", hdtot, hdcull);
+		}
+#endif
 		// Note: the events may spawn actors. We can't use iterators here.
 		// Spawned objects must be initialized twice.
 		// DX breaks if SetInitialState isn't called a second time on the spawned inventory after DeusExCarcass.PostBeginPlay finishes.
@@ -879,7 +919,9 @@ void Engine::PossessSavedPlayer()
 	viewport->Actor()->Player() = viewport;
 	CallEvent(viewport->Actor(), EventName::Possess);
 
+#ifndef __N64__
 	render->OnMapLoaded();
+#endif
 }
 
 void Engine::SaveGameToSlot(int32_t slotNum, const std::string& saveDescription) const
@@ -1039,7 +1081,9 @@ void Engine::LoginPlayer()
 	CallEvent(pawn, EventName::TravelPostAccept);
 	CallEvent(LevelInfo->Game(), EventName::PostLogin, { ExpressionValue::ObjectValue(pawn) });
 
+#ifndef __N64__
 	render->OnMapLoaded();
+#endif
 }
 
 UZoneInfo* Engine::GetZoneActor(int zoneIndex)
@@ -1071,7 +1115,11 @@ float Engine::CalcTimeElapsed()
 
 	uint64_t deltaTime = currentTime - lastTime;
 	lastTime = currentTime;
+	#ifdef __N64__
+	return clamp(deltaTime / 1'000'000.0f, 0.0f, 0.1f);
+#else
 	return clamp(deltaTime / 1'000'000.0f, 0.0f, 1.0f);
+#endif
 }
 
 std::string Engine::ParseClassName(std::string className)
@@ -1616,6 +1664,9 @@ void Engine::TickWindow()
 	InputEvent(IK_MouseY, IST_Axis, 0);
 
 	GameWindow::ProcessEvents();
+#ifdef __N64__
+	K64PadPoll(this);
+#endif
 
 	if (MouseMoveX != 0 || MouseMoveY != 0)
 	{

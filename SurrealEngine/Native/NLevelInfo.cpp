@@ -4,6 +4,9 @@
 #include "VM/NativeFunc.h"
 #include "Packages/Engine/Actors/Info/ULevelInfo.h"
 #include "Utils/Logger.h"
+#include "Packages/Core/UClass.h"
+#include "Package/Package.h"
+#include "Package/PackageManager.h"
 #include "Engine.h"
 
 void NLevelInfo::RegisterFunctions()
@@ -17,20 +20,20 @@ void NLevelInfo::RegisterFunctions()
 			RegisterVMNativeFunc_4("LevelInfo", "GetLocZone", &NLevelInfo::GetLocZone_U227k, 1709);
 		else
 			RegisterVMNativeFunc_3("LevelInfo", "GetLocZone", &NLevelInfo::GetLocZone_U227, 1709);
-		RegisterVMNativeFunc_3("LevelInfo", "AllocateObj", &NLevelInfo::AllocateObj_U227, 1710);
-		RegisterVMNativeFunc_2("LevelInfo", "FreeObject", &NLevelInfo::FreeObject_U227, 1711);
+		RegisterVMNativeFunc_2("LevelInfo", "AllocateObj", &NLevelInfo::AllocateObj_U227, 1710);
+		RegisterVMNativeFunc_1("LevelInfo", "FreeObject", &NLevelInfo::FreeObject_U227, 1711);
 	}
 }
 
 void NLevelInfo::AllocateObj_U227(UObject* Self, UObject* ObjClass, UObject*& ReturnValue)
 {
-	LogUnimplemented("LevelInfo.AllocateObj() [U227]");
-	ReturnValue = nullptr;
+	UClass* cls = UObject::Cast<UClass>(ObjClass);
+	ReturnValue = cls ? engine->packages->GetTransientPackage()->NewObject("AllocObj", cls, ObjectFlags::Transient) : nullptr;
 }
 
 void NLevelInfo::FreeObject_U227(UObject* Self, UObject* Obj)
 {
-	LogUnimplemented("LevelInfo.FreeObject() [U227]");
+	// the object is garbage collected: nothing to free
 }
 
 void NLevelInfo::GetAddressURL(UObject* Self, std::string& ReturnValue)

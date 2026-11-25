@@ -17,6 +17,26 @@ public:
 	{
 		if (pos + s > size)
 			Exception::Throw("Unexpected end of file");
+#ifdef __N64__
+		if (lazy)
+		{
+			uint8_t* o = static_cast<uint8_t*>(d);
+			while (s > 0)
+			{
+				if (pos < winStart || pos >= winStart + winLen)
+				{
+					winStart = pos;
+					winLen = size - pos < 65536 ? size - pos : 65536;
+					package->ReadFileBytes((uint32_t)(startoffset + pos), const_cast<uint8_t*>(data), (uint32_t)winLen);
+				}
+				size_t n = winStart + winLen - pos;
+				if (n > s) n = s;
+				memcpy(o, data + (pos - winStart), n);
+				o += n; pos += n; s -= (uint32_t)n;
+			}
+			return;
+		}
+#endif
 		memcpy(d, data + pos, s);
 		pos += s;
 	}
@@ -30,10 +50,10 @@ public:
 	bool IsEmptyStream() const { return size == 0; }
 
 	int8_t ReadInt8() { int8_t t; ReadBytes(&t, 1); return t; }
-	int16_t ReadInt16() { int16_t t; ReadBytes(&t, 2); return t; }
-	int32_t ReadInt32() { int32_t t; ReadBytes(&t, 4); return t; }
-	int64_t ReadInt64() { int64_t t; ReadBytes(&t, 8); return t; }
-	float ReadFloat() { float t; ReadBytes(&t, 4); return t; }
+	int16_t ReadInt16() { int16_t t; ReadBytes(&t, 2); return BSWAP16(t); }
+	int32_t ReadInt32() { int32_t t; ReadBytes(&t, 4); return BSWAP32(t); }
+	int64_t ReadInt64() { int64_t t; ReadBytes(&t, 8); return BSWAP64(t); }
+	float ReadFloat() { float t; ReadBytes(&t, 4); return BSWAP32(t); }
 
 	uint8_t ReadUInt8() { return ReadInt8(); }
 	uint16_t ReadUInt16() { return ReadInt16(); }
@@ -163,6 +183,13 @@ private:
 	Package* package = nullptr;
 	std::unique_ptr<uint64_t[]> buffer;
 	const uint8_t* data = nullptr;
+#ifdef __N64__
+public:
+	void SetLazy() { lazy = true; }
+private:
+	bool lazy = false;
+	size_t winStart = 0, winLen = 0;
+#endif
 	size_t startoffset = 0;
 	size_t size = 0;
 	size_t pos = 0;

@@ -59,7 +59,10 @@ void NActor::RegisterFunctions()
 	RegisterVMNativeFunc_1("Actor", "LastRendered", &NActor::LastRendered, 723);
 	RegisterVMNativeFunc_1("Actor", "LinkSkelAnim", &NActor::LinkSkelAnim, 0);
 	RegisterVMNativeFunc_1("Actor", "MakeNoise", &NActor::MakeNoise, 512);
-	RegisterVMNativeFunc_2("Actor", "Move", &NActor::Move, 266);
+	if (engine->LaunchInfo.IsUnreal1_227())
+		RegisterVMNativeFunc_4("Actor", "Move", &NActor::Move_U227, 266);
+	else
+		RegisterVMNativeFunc_2("Actor", "Move", &NActor::Move, 266);
 	RegisterVMNativeFunc_3("Actor", "MoveCacheEntry", &NActor::MoveCacheEntry, 0);
 	RegisterVMNativeFunc_2("Actor", "MoveSmooth", &NActor::MoveSmooth, 3969);
 	RegisterVMNativeFunc_6("Actor", "PlayOwnedSound", &NActor::PlayOwnedSound, 0);
@@ -71,8 +74,15 @@ void NActor::RegisterFunctions()
 	RegisterVMNativeFunc_4("Actor", "RadiusActors", &NActor::RadiusActors, 310);
 	RegisterVMNativeFunc_1("Actor", "SetBase", &NActor::SetBase, 298);
 	RegisterVMNativeFunc_3("Actor", "SetCollision", &NActor::SetCollision, 262);
-	RegisterVMNativeFunc_3("Actor", "SetCollisionSize", &NActor::SetCollisionSize, 283);
-	RegisterVMNativeFunc_2("Actor", "SetLocation", &NActor::SetLocation, 267);
+	void SetCollisionSize_U227(UObject* Self, float NewRadius, float NewHeight, std::optional<bool> bCheckEncroachment, BitfieldBool& ReturnValue);
+	if (engine->LaunchInfo.IsUnreal1_227())
+		RegisterVMNativeFunc_4("Actor", "SetCollisionSize", &SetCollisionSize_U227, 283);
+	else
+		RegisterVMNativeFunc_3("Actor", "SetCollisionSize", &NActor::SetCollisionSize, 283);
+	if (engine->LaunchInfo.IsUnreal1_227())
+		RegisterVMNativeFunc_3("Actor", "SetLocation", &NActor::SetLocation_U227, 267);
+	else
+		RegisterVMNativeFunc_2("Actor", "SetLocation", &NActor::SetLocation, 267);
 	RegisterVMNativeFunc_1("Actor", "SetOwner", &NActor::SetOwner, 272);
 	if (!engine->LaunchInfo.IsDeusEx())
 		RegisterVMNativeFunc_1("Actor", "SetPhysics", &NActor::SetPhysics, 3970);
@@ -82,10 +92,13 @@ void NActor::RegisterFunctions()
 	RegisterVMNativeFunc_2("Actor", "SetTimer", &NActor::SetTimer, 280);
 	RegisterVMNativeFunc_1("Actor", "Sleep", &NActor::Sleep, 256);
 	RegisterLatentAction(257, LatentRunState::Sleep);
-	RegisterVMNativeFunc_6("Actor", "Spawn", &NActor::Spawn, 278);
+	if (engine->LaunchInfo.IsUnreal1_227())
+		RegisterVMNativeFunc_9("Actor", "Spawn", &NActor::Spawn_U227, 278);
+	else
+		RegisterVMNativeFunc_6("Actor", "Spawn", &NActor::Spawn, 278);
 	RegisterVMNativeFunc_2("Actor", "TouchingActors", &NActor::TouchingActors, 307);
 	if (engine->LaunchInfo.IsUnreal1_227())
-		RegisterVMNativeFunc_9("Actor", "Trace", &NActor::Trace_U227, 277);
+		RegisterVMNativeFunc_10("Actor", "Trace", &NActor::Trace_U227, 277);
 	else
 		RegisterVMNativeFunc_7("Actor", "Trace", &NActor::Trace, 277);
 	RegisterVMNativeFunc_7("Actor", "TraceActors", &NActor::TraceActors, 309);
@@ -126,7 +139,7 @@ void NActor::RegisterFunctions()
 
 	if (engine->LaunchInfo.IsUnreal1_227())
 	{
-		RegisterVMNativeFunc_7("Actor", "TraceSurfHitInfo", &NActor::TraceSurfHitInfo_U227, 1736);
+		RegisterVMNativeFunc_10("Actor", "TraceSurfHitInfo", &NActor::TraceSurfHitInfo_U227, 1736);
 		RegisterVMNativeFunc_6("Actor", "TraceThisActor", &NActor::TraceThisActor_U227, 1739);
 	}
 
@@ -168,7 +181,11 @@ void NActor::RegisterFunctions()
 	{
 		RegisterVMNativeFunc_3("Actor", "PlayAnim", &NActor::PlayAnim, 259);
 		RegisterVMNativeFunc_4("Actor", "LoopAnim", &NActor::LoopAnim, 260);
+#ifdef __N64__
+		RegisterVMNativeFunc_2("Actor", "IsAnimating", +[](UObject* Self, std::optional<int> Index, BitfieldBool& ReturnValue) { ReturnValue = UObject::Cast<UActor>(Self)->IsAnimating(); }, 282);
+#else
 		RegisterVMNativeFunc_1("Actor", "IsAnimating", &NActor::IsAnimating, 282);
+#endif
 		RegisterVMNativeFunc_0("Actor", "FinishAnim", &NActor::FinishAnim, 261);
 		RegisterLatentAction(262, LatentRunState::FinishAnim);
 	}
@@ -487,6 +504,13 @@ void NActor::MakeNoise(UObject* Self, float Loudness)
 	UObject::Cast<UActor>(Self)->MakeNoise(Loudness);
 }
 
+void NActor::Move_U227(UObject* Self, const vec3& Delta, std::optional<Rotator> NewRotation, std::optional<bool> bTest, BitfieldBool& ReturnValue)
+{
+	UActor* actor = UObject::Cast<UActor>(Self);
+	if (NewRotation) actor->Rotation() = *NewRotation;
+	ReturnValue = actor->Move(Delta);
+}
+
 void NActor::Move(UObject* Self, const vec3& Delta, BitfieldBool& ReturnValue)
 {
 	ReturnValue = UObject::Cast<UActor>(Self)->Move(Delta);
@@ -612,9 +636,22 @@ void NActor::SetCollision(UObject* Self, std::optional<bool> NewColActors, std::
 		NewBlockPlayers ? *NewBlockPlayers : SelfActor->bBlockPlayers());
 }
 
+void SetCollisionSize_U227(UObject* Self, float NewRadius, float NewHeight, std::optional<bool> bCheckEncroachment, BitfieldBool& ReturnValue)
+{
+	ReturnValue = UObject::Cast<UActor>(Self)->SetCollisionSize(NewRadius, NewHeight);
+}
+
 void NActor::SetCollisionSize(UObject* Self, float NewRadius, float NewHeight, BitfieldBool& ReturnValue)
 {
 	ReturnValue = UObject::Cast<UActor>(Self)->SetCollisionSize(NewRadius, NewHeight);
+}
+
+void NActor::SetLocation_U227(UObject* Self, const vec3& NewLocation, std::optional<Rotator> NewRotation, BitfieldBool& ReturnValue)
+{
+	UActor* actor = UObject::Cast<UActor>(Self);
+	bool ok = actor->SetLocation(NewLocation);
+	if (ok && NewRotation) actor->SetRotation(*NewRotation);
+	ReturnValue = ok;
 }
 
 void NActor::SetLocation(UObject* Self, const vec3& NewLocation, BitfieldBool& ReturnValue)
@@ -661,6 +698,13 @@ void NActor::Sleep(UObject* Self, float Seconds)
 		Self->StateFrame->SetLatentState(LatentRunState::Sleep);
 }
 
+void NActor::Spawn_U227(UObject* Self, UObject* SpawnClass, std::optional<UObject*> SpawnOwner, std::optional<NameString> SpawnTag, std::optional<vec3> SpawnLocation, std::optional<Rotator> SpawnRotation, std::optional<UObject*> SpawnInstigator, std::optional<UObject*> Template, std::optional<bool> bNoCollisionFail, UObject*& ReturnValue)
+{
+	Spawn(Self, SpawnClass, SpawnOwner, SpawnTag, SpawnLocation, SpawnRotation, ReturnValue);
+	if (ReturnValue && SpawnInstigator && *SpawnInstigator)
+		UObject::Cast<UActor>(ReturnValue)->Instigator() = UObject::Cast<UPawn>(*SpawnInstigator);
+}
+
 void NActor::Spawn(UObject* Self, UObject* SpawnClass, std::optional<UObject*> SpawnOwner, std::optional<NameString> SpawnTag, std::optional<vec3> SpawnLocation, std::optional<Rotator> SpawnRotation, UObject*& ReturnValue)
 {
 	ReturnValue = UObject::Cast<UActor>(Self)->Spawn(
@@ -696,7 +740,7 @@ void NActor::Trace(UObject* Self, vec3& HitLocation, vec3& HitNormal, const vec3
 		Extent ? *Extent : vec3(0, 0, 0));
 }
 
-void NActor::Trace_U227(UObject* Self, vec3& HitLocation, vec3& HitNormal, const vec3& TraceEnd, std::optional<vec3> TraceStart, std::optional<bool> bTraceActors, std::optional<vec3> Extent, std::optional<bool> bTraceBSP, std::optional<uint8_t> BSPTraceFlags, UObject*& ReturnValue)
+void NActor::Trace_U227(UObject* Self, vec3& HitLocation, vec3& HitNormal, const vec3& TraceEnd, std::optional<vec3> TraceStart, std::optional<bool> bTraceActors, std::optional<vec3> Extent, std::optional<bool> bTraceBSP, std::optional<uint8_t> BSPTraceFlags, std::optional<int> TraceFlags, UObject*& ReturnValue)
 {
 	auto SelfActor = UObject::Cast<UActor>(Self);
 	ReturnValue = SelfActor->Trace(
@@ -867,7 +911,7 @@ void NActor::TraceVisibleActors(UObject* Self, UObject* BaseClass, UObject*& Act
 	Frame::CreatedIterator = std::make_unique<TraceVisibleActorsIterator>(BaseClass, &Actor, HitLoc, HitNorm, End, &realStart, &realExtent);
 }
 
-void NActor::TraceSurfHitInfo_U227(UObject* Self, vec3& Start, vec3& End, vec3* HitLocation, vec3* HitNormal, UObject* HitTex, int* HitFlags, BitfieldBool& ReturnValue)
+void NActor::TraceSurfHitInfo_U227(UObject* Self, vec3& Start, vec3& End, vec3* HitLocation, vec3* HitNormal, UObject* HitTex, int* HitFlags, std::optional<vec3> Extent, std::optional<UObject*> HitActor, std::optional<int> TraceFlags, BitfieldBool& ReturnValue)
 {
 	auto SelfActor = UObject::Cast<UActor>(Self);
 	auto Tex = UObject::Cast<UTexture>(HitTex);

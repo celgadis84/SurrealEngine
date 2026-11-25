@@ -9,11 +9,17 @@
 #include "Packages/Engine/Resources/Level/ULevel.h"
 #include "Packages/Engine/Resources/Level/UModel.h"
 
+#ifdef __N64__
+static const float UE_PHYS_STEP = 0.05f;
+#else
+static const float UE_PHYS_STEP = 0.02f;
+#endif
+
 void UActor::TickPhysics(float elapsed)
 {
-	for (float timeLeft = elapsed; timeLeft > 0.0f && !bDeleteMe(); timeLeft -= 0.02f)
+	for (float timeLeft = elapsed; timeLeft > 0.0f && !bDeleteMe(); timeLeft -= UE_PHYS_STEP)
 	{
-		float physTimeElapsed = std::min(timeLeft, 0.02f);
+		float physTimeElapsed = std::min(timeLeft, UE_PHYS_STEP);
 		int mode = Physics();
 		if (mode != PHYS_None)
 		{

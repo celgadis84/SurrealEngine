@@ -1311,8 +1311,27 @@ void NObject::Or_IntInt(int A, int B, int& ReturnValue)
 
 void NObject::OrthoRotation(const vec3& X, const vec3& Y, const vec3& Z, Rotator& ReturnValue)
 {
-	Exception::Throw("Object.OrthoRotation");
-	ReturnValue = {};
+	{
+		const float k = 32768.0f / 3.14159265359f;
+		auto score = [&](const Rotator& r) { vec3 ax, ay, az; Coords::Rotation(r).GetAxes(ax, ay, az); return ax.x * X.x + ax.y * X.y + ax.z * X.z + ay.x * Y.x + ay.y * Y.y + ay.z * Y.z + az.x * Z.x + az.y * Z.y + az.z * Z.z; };
+		int yaw = (int)(std::atan2(X.y, X.x) * k);
+		int pitch = (int)(std::atan2(X.z, std::sqrt(X.x * X.x + X.y * X.y)) * k);
+		Rotator best(0, yaw, 0);
+		float bs = -1e30f;
+		for (int sp = -1; sp <= 1; sp += 2)
+		{
+			Rotator r0(pitch * sp, yaw, 0);
+			vec3 ax, ay, az; Coords::Rotation(r0).GetAxes(ax, ay, az);
+			int roll = (int)(std::atan2(Z.x * ay.x + Z.y * ay.y + Z.z * ay.z, Z.x * az.x + Z.y * az.y + Z.z * az.z) * k);
+			for (int sr = -1; sr <= 1; sr += 2)
+			{
+				Rotator r(pitch * sp, yaw, roll * sr);
+				float sc = score(r);
+				if (sc > bs) { bs = sc; best = r; }
+			}
+		}
+		ReturnValue = best;
+	}
 }
 
 void NObject::Percent_FloatFloat(float A, float B, float& ReturnValue)

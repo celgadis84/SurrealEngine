@@ -27,6 +27,17 @@ RenderDevice::RenderDevice()
 	UseDebugLayer = settings.RenderDevice.UseDebugLayer;
 }
 
+#ifdef __N64__
+// N64 port: the only render device is the port's one (engine/k64_render_device.cpp)
+std::unique_ptr<RenderDevice> K64CreateRenderDevice(Widget* viewport);
+std::unique_ptr<RenderDevice> RenderDevice::Create(Widget* viewport, RenderAPI renderAPI)
+{
+	return K64CreateRenderDevice(viewport);
+}
+#define K64_NO_RENDERDEVICE_CREATE 1
+#endif
+
+#ifndef K64_NO_RENDERDEVICE_CREATE
 std::unique_ptr<RenderDevice> RenderDevice::Create(Widget* viewport, RenderAPI renderAPI)
 {
 	if (renderAPI == RenderAPI::Vulkan)
@@ -48,6 +59,7 @@ std::unique_ptr<RenderDevice> RenderDevice::Create(Widget* viewport, RenderAPI r
 		Exception::Throw("Render API not available on this platform");
 	}
 }
+#endif
 
 ////////////////////////////////////////////////////////////////////////////
 

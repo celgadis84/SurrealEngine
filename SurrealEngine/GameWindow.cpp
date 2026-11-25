@@ -9,6 +9,7 @@
 
 GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI) : Widget(nullptr, WidgetType::Window, renderAPI), windowHost(windowHost)
 {
+#ifndef __N64__
 	SetWindowIcon({
 		Image::LoadResource("surreal-engine-icon-16.png"),
 		Image::LoadResource("surreal-engine-icon-24.png"),
@@ -18,6 +19,7 @@ GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI) : Widget
 		Image::LoadResource("surreal-engine-icon-128.png"),
 		Image::LoadResource("surreal-engine-icon-256.png")
 		});
+#endif
 
 	device = RenderDevice::Create(this, renderAPI);
 	SetCanvas(std::make_unique<RenderDeviceCanvas>(device.get()));

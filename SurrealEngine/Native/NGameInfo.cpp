@@ -7,8 +7,14 @@
 
 #include <sstream>
 
+static void GetEngineNative(UObject*& ReturnValue)
+{
+	ReturnValue = (UObject*)engine->gameengine;
+}
+
 void NGameInfo::RegisterFunctions()
 {
+	RegisterVMNativeFunc_1("Engine", "GetEngine", &GetEngineNative, 0);
 	RegisterVMNativeFunc_1("GameInfo", "GetNetworkNumber", &NGameInfo::GetNetworkNumber, 0);
 	if (engine->LaunchInfo.IsUnreal1_227())
 		RegisterVMNativeFunc_6("GameInfo", "ParseKillMessage", &NGameInfo::ParseKillMessage_U227, 0);

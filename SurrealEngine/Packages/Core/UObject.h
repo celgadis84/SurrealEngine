@@ -335,7 +335,22 @@ public:
 	Array<UProperty*> GetAllUserEditableProperties();
 	Array<UProperty*> GetAllTravelProperties();
 
+#ifdef __N64__
+	struct DisabledEventMap
+	{
+		using Map = std::map<NameString, std::set<NameString>>;
+		std::unique_ptr<Map> m;
+		static Map& Empty() { static Map e; return e; }
+		Map::iterator find(const NameString& k) { return m ? m->find(k) : Empty().end(); }
+		Map::iterator end() { return m ? m->end() : Empty().end(); }
+		Map::const_iterator find(const NameString& k) const { return m ? m->find(k) : Empty().end(); }
+		Map::const_iterator end() const { return m ? m->end() : Empty().end(); }
+		void clear() { m.reset(); }
+		std::set<NameString>& operator[](const NameString& k) { if (!m) m.reset(new Map); return (*m)[k]; }
+	} DisabledEvents;
+#else
 	std::map<NameString, std::set<NameString>> DisabledEvents;
+#endif
 
 	std::unique_ptr<ObjectDelayLoad> DelayLoad;
 
@@ -409,7 +424,12 @@ public:
 	NameString& uc_Name() { return Value<NameString>(PropOffsets_Object.Name); } // native
 	int& uc_ObjectFlags() { return Value<int>(PropOffsets_Object.ObjectFlags); } // native
 	int& uc_ObjectInternal() { return Value<int>(PropOffsets_Object.ObjectInternal); } // native, not available in 227
+#ifdef __N64__
+	UObject* NoBlockOuter = nullptr;
+	UObject*& Outer() { return PropertyData.Data ? Value<UObject*>(PropOffsets_Object.Outer) : NoBlockOuter; } // native
+#else
 	UObject*& Outer() { return Value<UObject*>(PropOffsets_Object.Outer); } // native
+#endif
 	int& ObjectIndex() { return Value<int>(PropOffsets_Object.ObjectIndex); }
 	UObject*& ObjectArchetype() { return Value<UObject*>(PropOffsets_Object.ObjectArchetype); }
 

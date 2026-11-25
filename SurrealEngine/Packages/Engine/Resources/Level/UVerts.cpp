@@ -7,6 +7,7 @@ void UVerts::Load(ObjectStream* stream)
 	UObject::Load(stream);
 	int count = stream->ReadInt32();
 	int maxcount = stream->ReadInt32();
+	Vertices.reserve(count);
 	for (int i = 0; i < count; i++)
 	{
 		BspVert vert;

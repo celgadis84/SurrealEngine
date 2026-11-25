@@ -85,6 +85,13 @@ bool UBoolProperty::GetBool(const void* data) const
 
 void UBoolProperty::SetBool(void* data, bool value)
 {
+#ifdef __N64__
+	if (!data || (reinterpret_cast<uintptr_t>(data) & 3))
+	{
+		printf("[ue] UBoolProperty::SetBool: bad data ptr %p (prop %s)\n", data, Name.ToString().c_str());
+		return;
+	}
+#endif
 	uint32_t& v = *static_cast<uint32_t*>(data);
 	if (value)
 		v = v | DataOffset.BitfieldMask;

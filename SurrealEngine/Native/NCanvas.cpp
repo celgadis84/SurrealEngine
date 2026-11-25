@@ -49,14 +49,14 @@ void NCanvas::RegisterFunctions()
 		// RegisterVMNativeFunc_5("Canvas", "DrawTris", &NCanvas::DrawTris_U227, 1746);
 		RegisterVMNativeFunc_13("Canvas", "DrawRotatedTile", &NCanvas::DrawRotatedTile_U227, 1747);
 		RegisterVMNativeFunc_4("Canvas", "PushClipPlane", &NCanvas::PushClipPlane_U227, 1748);
-		RegisterVMNativeFunc_1("Canvas", "PopClipPlane", &NCanvas::PopClipPlane_U227, 1749);
+		RegisterVMNativeFunc_0("Canvas", "PopClipPlane", &NCanvas::PopClipPlane_U227, 1749);
 		RegisterVMNativeFunc_3("Canvas", "SetZTest", &NCanvas::SetZTest_U227, 1759);
-		RegisterVMNativeFunc_3("Canvas", "PushCanvasScale", &NCanvas::PushCanvasScale_U227, 1762);
-		RegisterVMNativeFunc_1("Canvas", "PopCanvasScale", &NCanvas::PopCanvasScale_U227, 1763);
+		RegisterVMNativeFunc_2("Canvas", "PushCanvasScale", &NCanvas::PushCanvasScale_U227, 1762);
+		RegisterVMNativeFunc_0("Canvas", "PopCanvasScale", &NCanvas::PopCanvasScale_U227, 1763);
 		RegisterVMNativeFunc_3("Canvas", "SetCustomLighting", &NCanvas::SetCustomLighting_U227, 1774);
 		RegisterVMNativeFunc_4("Canvas", "AddCustomLightSource", &NCanvas::AddCustomLightSource_U227, 1775);
-		RegisterVMNativeFunc_1("Canvas", "ClearCustomLightSources", &NCanvas::ClearCustomLightSources_U227, 1776);
-		RegisterVMNativeFunc_1("Canvas", "Reset", &NCanvas::Reset_U227, 0);
+		RegisterVMNativeFunc_0("Canvas", "ClearCustomLightSources", &NCanvas::ClearCustomLightSources_U227, 1776);
+		RegisterVMNativeFunc_0("Canvas", "Reset", &NCanvas::Reset_U227, 0);
 	}
 	if (engine->LaunchInfo.IsUnrealTournament_469())
 	{
